@@ -2,21 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { Gift, Plus, Calendar, LogOut, CheckCircle2, Trash2, Sparkles, Search, X, Camera, Upload } from 'lucide-react';
 
-// --- Mock Data for Friends ---
-const INITIAL_USERS = [
-  { id: 'u1', name: 'Alex Rivera', avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff', birthday: '1990-03-15' },
-  { id: 'u2', name: 'Sarah Jenkins', avatar: 'https://ui-avatars.com/api/?name=Sarah+Jenkins&background=f472b6&color=fff', birthday: '1992-10-24' },
-  { id: 'u3', name: 'Mike Ross', avatar: 'https://ui-avatars.com/api/?name=Mike+Ross&background=38bdf8&color=fff', birthday: '1988-01-02' },
-  { id: 'u4', name: 'Jessica Lee', avatar: 'https://ui-avatars.com/api/?name=Jessica+Lee&background=fbbf24&color=fff', birthday: '1995-07-19' }
-];
-
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
   const [activeListId, setActiveListId] = useState(session.user.id);
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
   
-  // User Data State (Local copy to ensure UI updates instantly)
+  // User Data State
   const [birthday, setBirthday] = useState(session.user.user_metadata?.birthday || '');
   const [avatarUrl, setAvatarUrl] = useState(session.user.user_metadata?.avatar_url || '');
   const [displayName, setDisplayName] = useState(session.user.user_metadata?.full_name || session.user.email.split('@')[0]);
@@ -40,7 +32,6 @@ export default function Dashboard({ session, onLogout }) {
     const meta = session.user.user_metadata || {};
     setBirthday(meta.birthday || '');
     setAvatarUrl(meta.avatar_url || '');
-    setDisplayName(meta.full_name || session.user.email.split('@')[0]);
   }, [session]);
 
   async function fetchGifts() {
@@ -66,7 +57,7 @@ export default function Dashboard({ session, onLogout }) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setEditAvatarUrl(reader.result); // This is the base64 string
+        setEditAvatarUrl(reader.result); 
       };
       reader.readAsDataURL(file);
     }
@@ -102,12 +93,12 @@ export default function Dashboard({ session, onLogout }) {
       console.error("Failed to update profile:", error);
       alert("Could not save profile changes. The image might be too large.");
     } else {
-      // Update Local State Immediately (UI Fix)
+      // Update Local State Immediately
       setDisplayName(editName);
       setAvatarUrl(editAvatarUrl);
       setBirthday(editBirthday);
       
-      setIsProfileModalOpen(false); // Close Modal
+      setIsProfileModalOpen(false); 
       addNotification("Profile updated successfully!");
     }
   };
@@ -153,15 +144,14 @@ export default function Dashboard({ session, onLogout }) {
   // Use local state values
   const currentAvatar = avatarUrl || `https://ui-avatars.com/api/?name=${displayName}&background=6366f1&color=fff`;
 
-  const isMyList = activeListId === session.user.id;
+  // Since there are no fake users, 'allUsers' is just the current user
   const allUsers = [
-    { id: user.id, name: displayName, avatar: currentAvatar, isMe: true },
-    ...INITIAL_USERS
+    { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday }
   ];
 
-  const activeUser = isMyList 
-    ? { name: displayName, avatar: currentAvatar, birthday: birthday } 
-    : INITIAL_USERS.find(u => u.id === activeListId) || { name: 'Unknown', birthday: '?' };
+  // Since only your list is available, you are always active
+  const isMyList = true; 
+  const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
 
   const userGifts = gifts.filter(g => g.owner_id === activeListId);
 
@@ -183,7 +173,7 @@ export default function Dashboard({ session, onLogout }) {
       <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none"></div>
 
       {/* --- SIDEBAR (Glassmorphism) --- */}
-      <aside className="relative z-10 w-72 bg-slate-900/40 backdrop-blur-xl border-r border-white/5 flex flex-col hidden md:flex">
+      <aside className="relative z-10 w-72 bg-slate-900/40 backdrop-blur-xl border-r border-white/5 flex flex-col md:flex">
         <div className="p-6 flex items-center gap-3 border-b border-white/5">
           <img 
             src="/images/my-logo.png" 
@@ -200,18 +190,11 @@ export default function Dashboard({ session, onLogout }) {
               <button
                 key={u.id}
                 onClick={() => setActiveListId(u.id)}
-                className={`w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 group ${
-                  activeListId === u.id 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
-                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
-                }`}
+                className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 group bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
               >
                 <img src={u.avatar} className="w-8 h-8 rounded-full object-cover border border-white/10 group-hover:border-indigo-400/50 transition-colors" alt="" />
                 <div className="text-left flex-1 min-w-0">
                   <div className="truncate font-semibold">{u.name}</div>
-                  <div className="text-[10px] opacity-60 truncate">
-                    {u.isMe ? 'You' : 'Friend'}
-                  </div>
                 </div>
               </button>
             ))}
@@ -234,16 +217,16 @@ export default function Dashboard({ session, onLogout }) {
             
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight text-white">
-                {isMyList ? "My Wishlist" : `${activeUser.name}'s List`}
+                My Wishlist
               </h1>
-              {isMyList && <Sparkles className="w-5 h-5 text-indigo-400" />}
+              <Sparkles className="w-5 h-5 text-indigo-400" />
             </div>
 
-            {/* BIRTHDAY BADGE (Shows here as requested) */}
+            {/* BIRTHDAY BADGE */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full">
               <Calendar className="w-4 h-4 text-gray-400" />
               <span className="text-xs font-medium text-gray-300 uppercase tracking-wide">
-                {isMyList ? formatBirthday(birthday) : formatBirthday(activeUser.birthday)}
+                {formatBirthday(activeUser.birthday)}
               </span>
             </div>
           </div>
@@ -284,19 +267,17 @@ export default function Dashboard({ session, onLogout }) {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
               
               {/* ADD BUTTON CARD */}
-              {isMyList && (
-                <button 
-                  onClick={() => setIsModalOpen(true)}
-                  className="group h-full min-h-[320px] flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl hover:border-indigo-500 hover:bg-indigo-500/5 transition-all duration-300 text-gray-500 hover:text-indigo-400 relative overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                  <div className="w-14 h-14 rounded-full bg-slate-800 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center mb-4 transition-all shadow-lg group-hover:scale-110 z-10">
-                    <Plus className="w-6 h-6" />
-                  </div>
-                  <span className="font-semibold z-10">Add new gift</span>
-                  <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
-                </button>
-              )}
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="group h-full min-h-[320px] flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl hover:border-indigo-500 hover:bg-indigo-500/5 transition-all duration-300 text-gray-500 hover:text-indigo-400 relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <div className="w-14 h-14 rounded-full bg-slate-800 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center mb-4 transition-all shadow-lg group-hover:scale-110 z-10">
+                  <Plus className="w-6 h-6" />
+                </div>
+                <span className="font-semibold z-10">Add new gift</span>
+                <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
+              </button>
 
               {/* GIFT CARDS */}
               {userGifts.map(gift => {
@@ -352,17 +333,9 @@ export default function Dashboard({ session, onLogout }) {
                           <button 
                             onClick={() => handleReserve(gift.id)}
                             disabled={isReserved}
-                            className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                              isReserved 
-                                ? 'bg-slate-800 text-gray-500 cursor-not-allowed' 
-                                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40'
-                            }`}
+                            className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40"
                           >
-                            {isReserved ? (
-                              <><CheckCircle2 className="w-4 h-4" /> Taken</>
-                            ) : (
-                              <><Gift className="w-4 h-4" /> Reserve Gift</>
-                            )}
+                            <Gift className="w-4 h-4" /> Reserve Gift
                           </button>
                         )}
                       </div>
