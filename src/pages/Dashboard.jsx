@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
-import { Gift, Plus, Calendar, LogOut, Trash2, Sparkles, Search, X, Camera, Upload, DollarSign, Image } from 'lucide-react';
+import { Gift, Plus, Calendar, LogOut, Trash2, Sparkles, Search, X, Camera, Upload, DollarSign, Image, Users, CheckCircle2 } from 'lucide-react';
 
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
@@ -14,6 +14,12 @@ export default function Dashboard({ session, onLogout }) {
   const [myCircle, setMyCircle] = useState([]); // Stores followed users
   const [searchFriendQuery, setSearchFriendQuery] = useState('');
   const [friendSearchResults, setFriendSearchResults] = useState([]);
+
+  // --- NEW: Group State ---
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [generatedGroupCode, setGeneratedGroupCode] = useState(null); // Stores the generated code for UI display
+  const [editGroupCode, setEditGroupCode] = useState('');
 
   // User Data State
   const [birthday, setBirthday] = useState(session?.user?.user_metadata?.birthday || '');
@@ -43,7 +49,7 @@ export default function Dashboard({ session, onLogout }) {
     if (hasFetchedData.current) return;
     if (session?.user?.id) {
       fetchGifts();
-      fetchMyCircle(); // <--- ADDED: Fetch circle on load
+      fetchMyCircle();
       hasFetchedData.current = true;
     }
   }, [session]);
@@ -51,9 +57,9 @@ export default function Dashboard({ session, onLogout }) {
   // --- FETCH GIFTS ---
   async function fetchGifts() {
     try {
-      const { data, error } = await supabase.from('gifts').select('*'); // THIS defines 'data'
+      const { data, error } = await supabase.from('gifts').select('*');
       if (error) throw error;
-      setGifts(data || []); // Uses 'data'
+      setGifts(data || []);
     } catch (error) {
       console.error("Error fetching gifts:", error.message);
       setGifts([]);
@@ -62,9 +68,6 @@ export default function Dashboard({ session, onLogout }) {
 
   // --- FETCH MY CIRCLE ---
   const fetchMyCircle = async () => {
-    console.log("Fetching circle...");
-
-    // Step 1: Get IDs
     const { data: followsData, error: followsError } = await supabase
       .from('follows')
       .select('following_id')
@@ -76,12 +79,10 @@ export default function Dashboard({ session, onLogout }) {
     }
 
     if (!followsData || followsData.length === 0) {
-      console.log("No follows found.");
       setMyCircle([]);
       return;
     }
 
-    // Step 2: Get Profiles
     const ids = followsData.map(item => item.following_id);
     const { data: profilesData, error: profilesError } = await supabase
       .from('profiles')
@@ -98,12 +99,11 @@ export default function Dashboard({ session, onLogout }) {
         birthday: p.birthday,
         isMe: false
       }));
-      console.log("Circle loaded:", circle);
       setMyCircle(circle);
     }
   };
 
-  // NEW: 2. Search for a friend by Name
+  // --- SEARCH FRIEND ---
   const handleSearchFriend = async (e) => {
     const term = e.target.value;
     setSearchFriendQuery(term);
@@ -112,8 +112,8 @@ export default function Dashboard({ session, onLogout }) {
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url')
-        .or(`full_name.ilike.%${term}%,username.ilike.%${term}%`) // Search both fields
-        .limit(5); // Show top 5 matches
+        .or(`full_name.ilike.%${term}%,username.ilike.%${term}%`)
+        .limit(5);
 
       if (!error) setFriendSearchResults(data || []);
     } else {
@@ -121,34 +121,107 @@ export default function Dashboard({ session, onLogout }) {
     }
   };
 
-  // NEW: 3. Follow a user
+  // --- FOLLOW (MUTUAL) ---
   const handleFollow = async (targetId) => {
-    // Check 1: Don't follow yourself
     if (targetId === session.user.id) {
       alert("You cannot follow yourself.");
       return;
     }
 
-    const { error } = await supabase
+    // 1. I follow them
+    const { error: error1 } = await supabase
       .from('follows')
       .insert([{ follower_id: session.user.id, following_id: targetId }]);
 
-    if (error) {
-      console.error("Follow Error:", error); 
-      if (error.code === '23505') {
-        alert("You are already following this user.");
-      } else {
-        alert(`Could not follow: ${error.message}`);
-      }
+    // 2. They follow me (Mutual)
+    const { error: error2 } = await supabase
+      .from('follows')
+      .insert([{ follower_id: targetId, following_id: session.user.id }]);
+
+    if ((error1 && error1.code !== '23505') || (error2 && error2.code !== '23505')) {
+      alert("Could not follow.");
     } else {
-      setSearchFriendQuery(''); // Clear search
+      setSearchFriendQuery(''); 
       setFriendSearchResults([]);
-      await fetchMyCircle(); // <--- ADDED 'await' HERE
+      await fetchMyCircle(); 
       addNotification("Added to circle!");
     }
   };
 
-  // 4. Helper to Upload Image to Supabase Storage
+  // --- GROUP FUNCTIONS ---
+  
+  const generateCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  const copyGroupCode = () => {
+    if (generatedGroupCode) {
+      navigator.clipboard.writeText(generatedGroupCode);
+      addNotification("Code copied to clipboard!");
+    }
+  };
+
+  const handleCreateGroup = async (e) => {
+    e.preventDefault();
+    const code = generateCode();
+    
+    const { error } = await supabase.from('groups').insert([
+      { name: groupName, code: code, creator_id: session.user.id }
+    ]);
+
+    if (error) {
+      alert("Error creating group");
+      console.error(error);
+    } else {
+      // Show success screen instead of alerting
+      setGeneratedGroupCode(code);
+      setGroupName('');
+      addNotification("Group created successfully!");
+    }
+  };
+
+  const handleJoinGroupLogic = async (code) => {
+    if (!code) return;
+
+    // 1. Find Group
+    const { data: group, error: findError } = await supabase
+      .from('groups')
+      .select('id')
+      .eq('code', code.trim().toUpperCase())
+      .single();
+
+    if (findError || !group) {
+      alert("Invalid Group Code");
+      return false;
+    }
+
+    // 2. Add to Group Members
+    await supabase.from('group_members').insert([
+      { group_id: group.id, user_id: session.user.id }
+    ]).ignoreDuplicates(); // Ignore if already member
+
+    // 3. Fetch other members
+    const { data: members } = await supabase
+      .from('group_members')
+      .select('user_id')
+      .eq('group_id', group.id)
+      .neq('user_id', session.user.id);
+
+    if (members && members.length > 0) {
+      // 4. Create Mutual Follows
+      const followPromises = members.map(member => {
+        return Promise.all([
+          supabase.from('follows').insert([{ follower_id: session.user.id, following_id: member.user_id }]),
+          supabase.from('follows').insert([{ follower_id: member.user_id, following_id: session.user.id }])
+        ]);
+      });
+      await Promise.all(followPromises);
+    }
+    
+    return true;
+  };
+
+  // --- IMAGE UPLOAD ---
   const uploadImage = async (file) => {
     if (!file) return null;
     
@@ -157,16 +230,12 @@ export default function Dashboard({ session, onLogout }) {
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload to 'images' bucket
       let { error: uploadError } = await supabase.storage
         .from('images')
         .upload(filePath, file);
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
-      // Get Public URL
       const { data } = supabase.storage
         .from('images')
         .getPublicUrl(filePath);
@@ -174,64 +243,77 @@ export default function Dashboard({ session, onLogout }) {
       return data.publicUrl;
     } catch (error) {
       console.error('Error uploading image:', error);
-      alert('Image upload failed. Ensure the "images" bucket exists and is public.');
+      alert('Image upload failed.');
       return null;
     }
   };
 
-  // 5. Profile File Selection
+  // --- PROFILE HANDLERS ---
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      setSelectedAvatarFile(file); // Store the file object
-      setEditAvatarUrl(URL.createObjectURL(file)); // Create local preview
+      setSelectedAvatarFile(file);
+      setEditAvatarUrl(URL.createObjectURL(file));
     }
   };
 
-  // 6. Profile Save
+  const openProfileModal = async () => {
+    setEditAvatarUrl(avatarUrl);
+    setEditName(displayName);
+    setEditBirthday(birthday);
+    
+    // Fetch existing group code
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('group_code')
+      .eq('id', session.user.id)
+      .single();
+    
+    setEditGroupCode(profile?.group_code || '');
+    setIsProfileModalOpen(true);
+  };
+
   const handleProfileSave = async (e) => {
     e.preventDefault();
     setUploading(true);
 
     let finalAvatarUrl = avatarUrl; 
 
-    // 1. Upload new image if selected
     if (selectedAvatarFile) {
       const url = await uploadImage(selectedAvatarFile);
       if (url) finalAvatarUrl = url;
-      else {
-        setUploading(false);
-        return; 
-      }
+      else { setUploading(false); return; }
     }
     
-    // 2. Update Supabase Auth Metadata (Important for current session)
+    // Update Auth
     const { error: authError } = await supabase.auth.updateUser({
-      data: { 
-        full_name: editName,
-        avatar_url: finalAvatarUrl, 
-        birthday: editBirthday 
-      }
+      data: { full_name: editName, avatar_url: finalAvatarUrl, birthday: editBirthday }
     });
 
-    // 3. Update the 'profiles' table (The new part!)
+    // Update Profile
     const { error: profileError } = await supabase
       .from('profiles')
       .upsert({
-        id: session.user.id,       // Link to the logged-in user
+        id: session.user.id,
         full_name: editName,
         avatar_url: finalAvatarUrl,
         birthday: editBirthday,
+        group_code: editGroupCode, // Save group code
         updated_at: new Date()
       });
     
     if (authError || profileError) {
-      console.error("Failed to update profile:", authError || profileError);
       alert("Could not save profile changes.");
     } else {
       setDisplayName(editName);
       setAvatarUrl(finalAvatarUrl);
       setBirthday(editBirthday);
+      
+      // Attempt to join group if code is new/changed
+      if (editGroupCode) {
+        await handleJoinGroupLogic(editGroupCode);
+        await fetchMyCircle(); // Refresh circle with new group members
+      }
       
       setIsProfileModalOpen(false);
       setSelectedAvatarFile(null); 
@@ -240,13 +322,11 @@ export default function Dashboard({ session, onLogout }) {
     setUploading(false);
   };
 
-  // 7. Add Gift File Selection
+  // --- GIFT HANDLERS ---
   const handleGiftFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setSelectedGiftFile(file);
-      // We don't set newGift.image here, we just hold the file.
-      // Optionally show a preview name
       setNewGift(g => ({...g, image: file.name})); 
     }
   };
@@ -256,8 +336,6 @@ export default function Dashboard({ session, onLogout }) {
     setUploading(true);
     
     let finalImageUrl = newGift.image; 
-
-    // ... (Your upload logic remains here) ...
     if (selectedGiftFile) {
       const url = await uploadImage(selectedGiftFile);
       if (url) finalImageUrl = url;
@@ -267,19 +345,17 @@ export default function Dashboard({ session, onLogout }) {
     const symbol = selectedCurrencyObj ? selectedCurrencyObj.symbol : '$';
     const finalPrice = `${symbol}${newGift.price}`;
 
-    // --- UPDATE THIS PART ---
     const { error } = await supabase.from('gifts').insert([
       { 
         name: newGift.name, 
         price: finalPrice,
-        currency: newGift.currency, // <--- ADD THIS LINE
+        currency: newGift.currency, 
         description: newGift.description,
         image_url: finalImageUrl, 
         owner_id: session.user.id, 
         reserved_by: null 
       }
     ]);
-    // ------------------------
     
     if (error) {
       alert("Error adding gift");
@@ -292,44 +368,6 @@ export default function Dashboard({ session, onLogout }) {
       addNotification("New gift added!"); 
     }
     setUploading(false);
-  };
-
-  // Robust Logout
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error(error);
-    window.location.href = '/'; // Force redirect to root
-  };
-
-  // Other Helpers
-  const formatBirthday = (dateStr) => {
-    if (!dateStr) return 'No Date Set';
-    if (!dateStr.includes('-')) return dateStr;
-    const date = new Date(dateStr);
-    if (isNaN(date)) return dateStr; 
-    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-  };
-
-  const currencies = [
-    { code: 'NGN', symbol: '₦' }, { code: 'EUR', symbol: '€' }, { code: 'GBP', symbol: '£' },
-    { code: 'JPY', symbol: '¥' }, { code: 'USD', symbol: '$' }, { code: 'CAD', symbol: 'C$' },
-    { code: 'AUD', symbol: 'A$' }, { code: 'INR', symbol: '₹' }
-  ];
-
-  const formatNumber = (val) => {
-    const clean = val.replace(/[^0-9]/g, '');
-    return clean ? Number(clean).toLocaleString() : '';
-  };
-
-  const handlePriceChange = (e) => {
-    setNewGift({...newGift, price: formatNumber(e.target.value)});
-  };
-
-  const openProfileModal = () => {
-    setEditAvatarUrl(avatarUrl);
-    setEditName(displayName);
-    setEditBirthday(birthday);
-    setIsProfileModalOpen(true);
   };
 
   const handleReserve = async (giftId) => {
@@ -354,54 +392,67 @@ export default function Dashboard({ session, onLogout }) {
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
   };
 
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error(error);
+    window.location.href = '/';
+  };
+
+  // Helpers
+  const formatBirthday = (dateStr) => {
+    if (!dateStr) return 'No Date Set';
+    const date = new Date(dateStr);
+    return isNaN(date) ? dateStr : date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  };
+
+  const currencies = [
+    { code: 'NGN', symbol: '₦' }, { code: 'EUR', symbol: '€' }, { code: 'GBP', symbol: '£' },
+    { code: 'JPY', symbol: '¥' }, { code: 'USD', symbol: '$' }, { code: 'CAD', symbol: 'C$' },
+    { code: 'AUD', symbol: 'A$' }, { code: 'INR', symbol: '₹' }
+  ];
+
+  const formatNumber = (val) => {
+    const clean = val.replace(/[^0-9]/g, '');
+    return clean ? Number(clean).toLocaleString() : '';
+  };
+
+  const handlePriceChange = (e) => {
+    setNewGift({...newGift, price: formatNumber(e.target.value)});
+  };
+
   if (!session || !session.user) return <div className="p-10 text-center text-white">Loading...</div>;
 
   const user = session.user;
   const currentAvatar = avatarUrl || `https://ui-avatars.com/api/?name=${displayName}&background=6366f1&color=fff`;
 
-  // Combine "Me" + "People I Follow"
   const allUsers = [
     { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday },
     ...myCircle
   ];
 
-  // FIX: Determine if the active list belongs to the current user
   const isMyList = activeListId === user.id; 
   const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
 
-  // Logic to filter gifts by Owner AND Search Query
   const userGifts = gifts.filter(gift => {
     const isOwner = gift.owner_id === activeListId;
-    
-    // If search is empty, show all. Otherwise, check Name OR Description
     if (!searchQuery) return isOwner;
-    
     const term = searchQuery.toLowerCase();
-    const matchesSearch = 
-      gift.name.toLowerCase().includes(term) || 
-      gift.description.toLowerCase().includes(term);
-      
+    const matchesSearch = gift.name.toLowerCase().includes(term) || gift.description.toLowerCase().includes(term);
     return isOwner && matchesSearch;
   });
 
   return (
     <div className="flex h-screen bg-[#0f172a] text-white font-sans selection:bg-indigo-500 selection:text-white overflow-hidden relative">
-      
-      {/* --- DOT GRID BACKGROUND --- */}
-      <div 
-        className="absolute inset-0 pointer-events-none z-0"
+      <div className="absolute inset-0 pointer-events-none z-0"
         style={{
           backgroundSize: '40px 40px',
           backgroundImage: 'linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px)',
           maskImage: 'radial-gradient(circle at center, black 40%, transparent 100%)'
         }}
       ></div>
-      
-      {/* --- GLOW EFFECTS --- */}
       <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none"></div>
 
-      {/* --- SIDEBAR --- */}
       <aside className="relative z-10 w-72 bg-slate-900/40 backdrop-blur-xl border-r border-white/5 flex flex-col md:flex">
         <div className="p-6 flex items-center gap-3 border-b border-white/5">
           <img src="/images/my-logo.png" alt="Logo" className="w-8 h-8 object-contain" />
@@ -411,17 +462,15 @@ export default function Dashboard({ session, onLogout }) {
         <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col">
           <p className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Your Circle</p>
           
-          {/* NEW: Search / Add Friend */}
-          <div className="px-3 mb-4 relative">
+          {/* Search Friend */}
+          <div className="px-3 mb-2 relative">
             <input 
               type="text" 
-              placeholder="Find friend by name..." 
+              placeholder="Find friend..." 
               className="w-full bg-slate-800/50 border border-white/10 rounded-lg py-2 px-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
               value={searchFriendQuery}
               onChange={handleSearchFriend}
             />
-            
-            {/* Search Results Dropdown */}
             {friendSearchResults.length > 0 && (
               <div className="absolute top-full left-3 right-3 mt-1 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
                 {friendSearchResults.map(friend => (
@@ -439,6 +488,16 @@ export default function Dashboard({ session, onLogout }) {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Create Group Button */}
+          <div className="px-3 mb-4">
+             <button 
+               onClick={() => setIsGroupModalOpen(true)}
+               className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-lg hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold"
+             >
+               <Users className="w-3 h-3" /> Create Group
+             </button>
           </div>
 
           {/* List Users */}
@@ -463,32 +522,24 @@ export default function Dashboard({ session, onLogout }) {
         </div>
 
         <div className="p-4 border-t border-white/5">
-          {/* Updated Logout to use handleLogout */}
           <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/5 hover:border-red-500/20 rounded-xl transition-all">
             <LogOut className="w-4 h-4" /> <span>Logout</span>
           </button>
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT --- */}
       <main className="relative z-10 flex-1 flex flex-col h-full overflow-hidden">
-        
-        {/* HEADER */}
         <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-8 py-5 flex justify-between items-center shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-3">
-              {/* Dynamic Header Text */}
               <h1 className="text-2xl font-bold tracking-tight text-white">
                 {isMyList ? "My Wishlist" : `${activeUser.name}'s Wishlist`}
               </h1>
               <Sparkles className="w-5 h-5 text-indigo-400" />
             </div>
-
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full">
               <Calendar className="w-4 h-4 text-gray-400" />
-              <span className="text-xs font-medium text-gray-300 uppercase tracking-wide">
-                {formatBirthday(activeUser.birthday)}
-              </span>
+              <span className="text-xs font-medium text-gray-300 uppercase tracking-wide">{formatBirthday(activeUser.birthday)}</span>
             </div>
           </div>
 
@@ -509,25 +560,20 @@ export default function Dashboard({ session, onLogout }) {
           </button>
         </header>
 
-        {/* SCROLLABLE AREA */}
         <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto">
-            
-                {/* SEARCH / FILTER */}
-                <div className="mb-8 relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input 
-                  type="text" 
-                  placeholder="Search gifts..." 
-                  className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all backdrop-blur-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
+            <div className="mb-8 relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <input 
+                type="text" 
+                placeholder="Search gifts..." 
+                className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all backdrop-blur-sm"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
-              
-              {/* ADD BUTTON CARD */}
               {isMyList && (
                 <button 
                   onClick={() => setIsModalOpen(true)}
@@ -542,15 +588,11 @@ export default function Dashboard({ session, onLogout }) {
                 </button>
               )}
               
-              {/* GIFT CARDS */}
               {userGifts.map(gift => {
                 const isReserved = gift.reserved_by !== null;
                 const isReservedByMe = gift.reserved_by === session.user.id;
-                
                 return (
                   <div key={gift.id} className="group relative bg-slate-900/40 border border-white/5 hover:border-white/10 rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-indigo-900/20 transition-all duration-300 flex flex-col">
-                    
-                    {/* IMAGE SECTION */}
                     <div className="aspect-[4/3] w-full bg-slate-800/50 relative overflow-hidden">
                       {gift.image_url ? (
                         <img src={gift.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={gift.name} />
@@ -560,42 +602,26 @@ export default function Dashboard({ session, onLogout }) {
                           <span className="text-xs font-medium uppercase tracking-wider opacity-60">No Image</span>
                         </div>
                       )}
-                      
                       <div className="absolute top-4 right-4 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold text-white border border-white/10 shadow-lg">
                         {gift.price === 'Any' ? 'Any Price' : gift.price}
                       </div>
-
                       {isReserved && !isMyList && (
                         <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-center z-20">
-                          <div className="bg-indigo-600 text-white px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-3 shadow-xl shadow-indigo-600/30">
-                            Reserved
-                          </div>
-                          <p className="text-gray-300 font-medium text-sm">
-                            {isReservedByMe ? "You've reserved this" : "Someone else grabbed it"}
-                          </p>
+                          <div className="bg-indigo-600 text-white px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-3 shadow-xl shadow-indigo-600/30">Reserved</div>
+                          <p className="text-gray-300 font-medium text-sm">{isReservedByMe ? "You've reserved this" : "Someone else grabbed it"}</p>
                         </div>
                       )}
                     </div>
-
-                    {/* CONTENT SECTION */}
                     <div className="p-5 flex-1 flex flex-col">
                       <h3 className="font-bold text-lg text-white leading-tight mb-2">{gift.name}</h3>
                       <p className="text-sm text-gray-400 line-clamp-2 mb-4 flex-1 leading-relaxed">{gift.description}</p>
-                      
                       <div className="mt-auto pt-4 border-t border-white/5">
                         {isMyList ? (
-                          <button 
-                            onClick={() => handleDeleteGift(gift.id)}
-                            className="w-full py-2.5 text-xs font-semibold text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors flex items-center justify-center gap-2"
-                          >
+                          <button onClick={() => handleDeleteGift(gift.id)} className="w-full py-2.5 text-xs font-semibold text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors flex items-center justify-center gap-2">
                             <Trash2 className="w-3.5 h-3.5" /> Delete Gift
                           </button>
                         ) : (
-                          <button 
-                            onClick={() => handleReserve(gift.id)}
-                            disabled={isReserved}
-                            className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
+                          <button onClick={() => handleReserve(gift.id)} disabled={isReserved} className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40 disabled:opacity-50 disabled:cursor-not-allowed">
                             <Gift className="w-4 h-4" /> {isReserved ? (isReservedByMe ? "Reserved by You" : "Reserved") : "Reserve Gift"}
                           </button>
                         )}
@@ -609,7 +635,7 @@ export default function Dashboard({ session, onLogout }) {
         </div>
       </main>
 
-      {/* --- ADD GIFT MODAL --- */}
+      {/* ADD GIFT MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
@@ -623,8 +649,6 @@ export default function Dashboard({ session, onLogout }) {
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Gift Name</label>
                   <input required type="text" placeholder="e.g. Mechanical Keyboard" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.name} onChange={e => setNewGift({...newGift, name: e.target.value})} />
                 </div>
-
-                {/* CURRENCY & AMOUNT */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Currency</label>
@@ -640,8 +664,6 @@ export default function Dashboard({ session, onLogout }) {
                     <input required type="text" placeholder="0" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={newGift.price} onChange={handlePriceChange} />
                   </div>
                 </div>
-                
-                {/* IMAGE UPLOAD SECTION */}
                 <div className="grid grid-cols-2 gap-4 items-end">
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
@@ -655,7 +677,6 @@ export default function Dashboard({ session, onLogout }) {
                      </button>
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
                   <textarea rows="3" placeholder="Add details..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none resize-none text-white placeholder-gray-600 transition-all" value={newGift.description} onChange={e => setNewGift({...newGift, description: e.target.value})} />
@@ -669,7 +690,84 @@ export default function Dashboard({ session, onLogout }) {
         </div>
       )}
 
-      {/* --- EDIT PROFILE MODAL --- */}
+      {/* CREATE GROUP MODAL */}
+      {isGroupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+              <h3 className="font-bold text-lg text-white">
+                {generatedGroupCode ? "Group Created!" : "Create New Group"}
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsGroupModalOpen(false);
+                  setGeneratedGroupCode(null);
+                }} 
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="p-6">
+              
+              {/* SUCCESS SCREEN */}
+              {generatedGroupCode ? (
+                <div className="flex flex-col items-center text-center space-y-4">
+                  <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center">
+                    <CheckCircle2 className="w-8 h-8 text-green-500" />
+                  </div>
+                  
+                  <div>
+                    <h4 className="text-xl font-bold text-white mb-2">Share this Code</h4>
+                    <p className="text-sm text-gray-400 mb-4">
+                      Give this code to your friends so they can join your group.
+                    </p>
+                  </div>
+
+                  {/* THE CODE DISPLAY */}
+                  <div className="w-full bg-slate-950 border-2 border-dashed border-indigo-500/30 rounded-xl p-6 cursor-pointer hover:bg-slate-900 transition-colors group" onClick={copyGroupCode}>
+                    <span className="text-3xl font-mono font-bold text-indigo-400 tracking-widest">
+                      {generatedGroupCode}
+                    </span>
+                    <p className="text-xs text-gray-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">Click to copy</p>
+                  </div>
+
+                  <div className="flex w-full gap-3 pt-2">
+                    <button 
+                      onClick={copyGroupCode}
+                      className="flex-1 py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-gray-200 transition-all"
+                    >
+                      Copy Code
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* CREATE FORM */
+                <form onSubmit={handleCreateGroup} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Group Name</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. Family, Office" 
+                      className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" 
+                      value={groupName} 
+                      onChange={e => setGroupName(e.target.value)} 
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">A unique code will be generated automatically.</p>
+                  <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all">
+                    Create Group
+                  </button>
+                </form>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PROFILE MODAL */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
@@ -679,15 +777,10 @@ export default function Dashboard({ session, onLogout }) {
             </div>
             <div className="p-6">
               <form onSubmit={handleProfileSave} className="space-y-5">
-                {/* Avatar Upload */}
                 <div className="flex flex-col items-center gap-3">
                    <div className="relative group cursor-pointer" onClick={() => fileInputRef.current.click()}>
                       <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
-                         <img 
-                           src={editAvatarUrl || `https://ui-avatars.com/api/?name=${editName}&background=6366f1&color=fff`} 
-                           className="w-full h-full rounded-full object-cover bg-slate-900" 
-                           alt="Preview" 
-                         />
+                         <img src={editAvatarUrl || `https://ui-avatars.com/api/?name=${editName}&background=6366f1&color=fff`} className="w-full h-full rounded-full object-cover bg-slate-900" alt="Preview" />
                       </div>
                       <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                          <Upload className="w-6 h-6 text-white" />
@@ -696,17 +789,26 @@ export default function Dashboard({ session, onLogout }) {
                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
                    <p className="text-xs text-gray-500">{selectedAvatarFile ? selectedAvatarFile.name : "Click to upload image"}</p>
                 </div>
-                
-                {/* Name Input */}
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Display Name</label>
                   <input type="text" required className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={editName} onChange={e => setEditName(e.target.value)} />
                 </div>
-                
-                {/* Birthday Input */}
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Birthday</label>
                   <input type="date" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all [color-scheme:dark]" value={editBirthday} onChange={e => setEditBirthday(e.target.value)} />
+                </div>
+                
+                {/* GROUP CODE INPUT */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Group Code (Optional)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Enter code to join group" 
+                    className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" 
+                    value={editGroupCode}
+                    onChange={e => setEditGroupCode(e.target.value)}
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">Enter a code to join an existing group. You will automatically follow everyone in it.</p>
                 </div>
                 
                 <button type="submit" disabled={uploading} className="w-full bg-white text-slate-900 hover:bg-gray-200 font-bold py-3 rounded-xl transition-all disabled:opacity-50">
