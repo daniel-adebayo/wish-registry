@@ -5,6 +5,7 @@ import { Gift, Plus, Calendar, LogOut, Trash2, Sparkles, Search, X, Camera, Uplo
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
   const [activeListId, setActiveListId] = useState(session?.user?.id || '');
+  const [searchQuery, setSearchQuery] = useState(''); // Implementing Search
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
   const [uploading, setUploading] = useState(false); // Loading state for uploads
@@ -25,7 +26,7 @@ export default function Dashboard({ session, onLogout }) {
   const [selectedAvatarFile, setSelectedAvatarFile] = useState(null); // Holds the profile file object
 
   // Add Gift State
-  const [newGift, setNewGift] = useState({ name: '', price: '', currency: 'USD', description: '', image: '' });
+  const [newGift, setNewGift] = useState({ name: '', price: '', currency: 'NGN', description: '', image: '' });
   const [selectedGiftFile, setSelectedGiftFile] = useState(null); // Holds the gift file object
   const fileInputRef = useRef(null);
   const giftFileInputRef = useRef(null); // Separate ref for gift input
@@ -184,7 +185,7 @@ export default function Dashboard({ session, onLogout }) {
       console.error(error);
     } else { 
       setIsModalOpen(false); 
-      setNewGift({ name: '', price: '', currency: 'USD', description: '', image: '' });
+      setNewGift({ name: '', price: '', currency: 'NGN', description: '', image: '' });
       setSelectedGiftFile(null); // Reset file
       fetchGifts(); 
       addNotification("New gift added!"); 
@@ -209,8 +210,8 @@ export default function Dashboard({ session, onLogout }) {
   };
 
   const currencies = [
-    { code: 'USD', symbol: '$' }, { code: 'EUR', symbol: '€' }, { code: 'GBP', symbol: '£' },
-    { code: 'JPY', symbol: '¥' }, { code: 'NGN', symbol: '₦' }, { code: 'CAD', symbol: 'C$' },
+    { code: 'NGN', symbol: '₦' }, { code: 'EUR', symbol: '€' }, { code: 'GBP', symbol: '£' },
+    { code: 'JPY', symbol: '¥' }, { code: 'USD', symbol: '$' }, { code: 'CAD', symbol: 'C$' },
     { code: 'AUD', symbol: 'A$' }, { code: 'INR', symbol: '₹' }
   ];
 
@@ -263,7 +264,20 @@ export default function Dashboard({ session, onLogout }) {
 
   const isMyList = true; 
   const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
-  const userGifts = gifts.filter(g => g.owner_id === activeListId);
+    // Logic to filter gifts by Owner AND Search Query
+  const userGifts = gifts.filter(gift => {
+    const isOwner = gift.owner_id === activeListId;
+    
+    // If search is empty, show all. Otherwise, check Name OR Description
+    if (!searchQuery) return isOwner;
+    
+    const term = searchQuery.toLowerCase();
+    const matchesSearch = 
+      gift.name.toLowerCase().includes(term) || 
+      gift.description.toLowerCase().includes(term);
+      
+    return isOwner && matchesSearch;
+  });
 
   return (
     <div className="flex h-screen bg-[#0f172a] text-white font-sans selection:bg-indigo-500 selection:text-white overflow-hidden relative">
@@ -355,15 +369,17 @@ export default function Dashboard({ session, onLogout }) {
         <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto">
             
-            {/* SEARCH */}
-            <div className="mb-8 relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input 
-                type="text" 
-                placeholder="Search gifts..." 
-                className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all backdrop-blur-sm"
-              />
-            </div>
+                {/* SEARCH / FILTER */}
+                <div className="mb-8 relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input 
+                  type="text" 
+                  placeholder="Search gifts..." 
+                  className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all backdrop-blur-sm"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
               
