@@ -5,11 +5,16 @@ import { Gift, Plus, Calendar, LogOut, Trash2, Sparkles, Search, X, Camera, Uplo
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
   const [activeListId, setActiveListId] = useState(session?.user?.id || '');
-  const [searchQuery, setSearchQuery] = useState(''); // Implementing Search
+  const [searchQuery, setSearchQuery] = useState(''); // Gift Search
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
   const [uploading, setUploading] = useState(false); // Loading state for uploads
   
+  // --- NEW: Circle/Follow State ---
+  const [myCircle, setMyCircle] = useState([]); // Stores followed users
+  const [searchFriendQuery, setSearchFriendQuery] = useState('');
+  const [friendSearchResults, setFriendSearchResults] = useState([]);
+
   // User Data State
   const [birthday, setBirthday] = useState(session?.user?.user_metadata?.birthday || '');
   const [avatarUrl, setAvatarUrl] = useState(session?.user?.user_metadata?.avatar_url || '');
@@ -38,24 +43,112 @@ export default function Dashboard({ session, onLogout }) {
     if (hasFetchedData.current) return;
     if (session?.user?.id) {
       fetchGifts();
+      fetchMyCircle(); // <--- ADDED: Fetch circle on load
       hasFetchedData.current = true;
     }
   }, [session]);
 
+  // --- FETCH GIFTS ---
   async function fetchGifts() {
     try {
-      const { data, error } = await supabase.from('gifts').select('*');
+      const { data, error } = await supabase.from('gifts').select('*'); // THIS defines 'data'
       if (error) throw error;
-      setGifts(data || []);
+      setGifts(data || []); // Uses 'data'
     } catch (error) {
       console.error("Error fetching gifts:", error.message);
       setGifts([]);
     }
   }
 
-  // --- HANDLERS ---
-  
-  // 1. Helper to Upload Image to Supabase Storage
+  // --- FETCH MY CIRCLE ---
+  const fetchMyCircle = async () => {
+    console.log("Fetching circle...");
+
+    // Step 1: Get IDs
+    const { data: followsData, error: followsError } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', session.user.id);
+
+    if (followsError) {
+      console.error("Error fetching follows IDs:", followsError);
+      return;
+    }
+
+    if (!followsData || followsData.length === 0) {
+      console.log("No follows found.");
+      setMyCircle([]);
+      return;
+    }
+
+    // Step 2: Get Profiles
+    const ids = followsData.map(item => item.following_id);
+    const { data: profilesData, error: profilesError } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', ids);
+
+    if (profilesError) {
+      console.error("Error fetching profiles:", profilesError);
+    } else {
+      const circle = profilesData.map(p => ({
+        id: p.id,
+        name: p.full_name || p.username || 'Unknown',
+        avatar: p.avatar_url,
+        birthday: p.birthday,
+        isMe: false
+      }));
+      console.log("Circle loaded:", circle);
+      setMyCircle(circle);
+    }
+  };
+
+  // NEW: 2. Search for a friend by Name
+  const handleSearchFriend = async (e) => {
+    const term = e.target.value;
+    setSearchFriendQuery(term);
+
+    if (term.length > 1) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, username, avatar_url')
+        .or(`full_name.ilike.%${term}%,username.ilike.%${term}%`) // Search both fields
+        .limit(5); // Show top 5 matches
+
+      if (!error) setFriendSearchResults(data || []);
+    } else {
+      setFriendSearchResults([]);
+    }
+  };
+
+  // NEW: 3. Follow a user
+  const handleFollow = async (targetId) => {
+    // Check 1: Don't follow yourself
+    if (targetId === session.user.id) {
+      alert("You cannot follow yourself.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('follows')
+      .insert([{ follower_id: session.user.id, following_id: targetId }]);
+
+    if (error) {
+      console.error("Follow Error:", error); 
+      if (error.code === '23505') {
+        alert("You are already following this user.");
+      } else {
+        alert(`Could not follow: ${error.message}`);
+      }
+    } else {
+      setSearchFriendQuery(''); // Clear search
+      setFriendSearchResults([]);
+      await fetchMyCircle(); // <--- ADDED 'await' HERE
+      addNotification("Added to circle!");
+    }
+  };
+
+  // 4. Helper to Upload Image to Supabase Storage
   const uploadImage = async (file) => {
     if (!file) return null;
     
@@ -86,7 +179,7 @@ export default function Dashboard({ session, onLogout }) {
     }
   };
 
-  // 2. Profile File Selection
+  // 5. Profile File Selection
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -95,38 +188,47 @@ export default function Dashboard({ session, onLogout }) {
     }
   };
 
-  // 3. Profile Save
+  // 6. Profile Save
   const handleProfileSave = async (e) => {
     e.preventDefault();
     setUploading(true);
 
-    let finalAvatarUrl = avatarUrl; // Default to existing
+    let finalAvatarUrl = avatarUrl; 
 
-    // If user selected a new file, upload it
+    // 1. Upload new image if selected
     if (selectedAvatarFile) {
       const url = await uploadImage(selectedAvatarFile);
-      if (url) {
-        finalAvatarUrl = url;
-      } else {
+      if (url) finalAvatarUrl = url;
+      else {
         setUploading(false);
-        return; // Stop if upload failed
+        return; 
       }
     }
     
-    // Update Supabase Auth
-    const { error } = await supabase.auth.updateUser({
+    // 2. Update Supabase Auth Metadata (Important for current session)
+    const { error: authError } = await supabase.auth.updateUser({
       data: { 
         full_name: editName,
         avatar_url: finalAvatarUrl, 
         birthday: editBirthday 
       }
     });
+
+    // 3. Update the 'profiles' table (The new part!)
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert({
+        id: session.user.id,       // Link to the logged-in user
+        full_name: editName,
+        avatar_url: finalAvatarUrl,
+        birthday: editBirthday,
+        updated_at: new Date()
+      });
     
-    if (error) {
-      console.error("Failed to update profile:", error);
+    if (authError || profileError) {
+      console.error("Failed to update profile:", authError || profileError);
       alert("Could not save profile changes.");
     } else {
-      // Update Local State
       setDisplayName(editName);
       setAvatarUrl(finalAvatarUrl);
       setBirthday(editBirthday);
@@ -138,7 +240,7 @@ export default function Dashboard({ session, onLogout }) {
     setUploading(false);
   };
 
-  // 4. Add Gift File Selection
+  // 7. Add Gift File Selection
   const handleGiftFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -149,44 +251,43 @@ export default function Dashboard({ session, onLogout }) {
     }
   };
 
-  // 5. Add Gift Submit
   const handleAddGift = async (e) => {
     e.preventDefault();
     setUploading(true);
     
-    let finalImageUrl = newGift.image; // Default to what user typed (or empty)
+    let finalImageUrl = newGift.image; 
 
-    // If a file was selected, upload it
+    // ... (Your upload logic remains here) ...
     if (selectedGiftFile) {
       const url = await uploadImage(selectedGiftFile);
-      if (url) {
-        finalImageUrl = url;
-      }
+      if (url) finalImageUrl = url;
     }
 
-    // Prepare Price
     const selectedCurrencyObj = currencies.find(c => c.code === newGift.currency);
     const symbol = selectedCurrencyObj ? selectedCurrencyObj.symbol : '$';
     const finalPrice = `${symbol}${newGift.price}`;
 
+    // --- UPDATE THIS PART ---
     const { error } = await supabase.from('gifts').insert([
       { 
         name: newGift.name, 
         price: finalPrice,
+        currency: newGift.currency, // <--- ADD THIS LINE
         description: newGift.description,
-        image_url: finalImageUrl, // Save the URL
+        image_url: finalImageUrl, 
         owner_id: session.user.id, 
         reserved_by: null 
       }
     ]);
+    // ------------------------
     
     if (error) {
       alert("Error adding gift");
       console.error(error);
     } else { 
       setIsModalOpen(false); 
-      setNewGift({ name: '', price: '', currency: 'NGN', description: '', image: '' });
-      setSelectedGiftFile(null); // Reset file
+      setNewGift({ name: '', price: '', currency: 'USD', description: '', image: '' });
+      setSelectedGiftFile(null); 
       fetchGifts(); 
       addNotification("New gift added!"); 
     }
@@ -258,13 +359,17 @@ export default function Dashboard({ session, onLogout }) {
   const user = session.user;
   const currentAvatar = avatarUrl || `https://ui-avatars.com/api/?name=${displayName}&background=6366f1&color=fff`;
 
+  // Combine "Me" + "People I Follow"
   const allUsers = [
-    { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday }
+    { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday },
+    ...myCircle
   ];
 
-  const isMyList = true; 
+  // FIX: Determine if the active list belongs to the current user
+  const isMyList = activeListId === user.id; 
   const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
-    // Logic to filter gifts by Owner AND Search Query
+
+  // Logic to filter gifts by Owner AND Search Query
   const userGifts = gifts.filter(gift => {
     const isOwner = gift.owner_id === activeListId;
     
@@ -303,16 +408,52 @@ export default function Dashboard({ session, onLogout }) {
           <span className="font-bold tracking-tight text-lg">Wish Registry</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-6 px-3">
+        <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col">
           <p className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Your Circle</p>
+          
+          {/* NEW: Search / Add Friend */}
+          <div className="px-3 mb-4 relative">
+            <input 
+              type="text" 
+              placeholder="Find friend by name..." 
+              className="w-full bg-slate-800/50 border border-white/10 rounded-lg py-2 px-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
+              value={searchFriendQuery}
+              onChange={handleSearchFriend}
+            />
+            
+            {/* Search Results Dropdown */}
+            {friendSearchResults.length > 0 && (
+              <div className="absolute top-full left-3 right-3 mt-1 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
+                {friendSearchResults.map(friend => (
+                  <button 
+                    key={friend.id}
+                    onClick={() => handleFollow(friend.id)}
+                    className="w-full text-left px-3 py-2 text-xs text-white hover:bg-indigo-600 transition-colors flex items-center gap-2"
+                  >
+                    <img src={friend.avatar_url || `https://ui-avatars.com/api/?name=${friend.full_name}&background=6366f1&color=fff`} className="w-5 h-5 rounded-full" alt="" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold">{friend.full_name}</span>
+                      <span className="text-[10px] text-gray-400">@{friend.username}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* List Users */}
           <nav className="space-y-1">
             {allUsers.map(u => (
               <button
                 key={u.id}
                 onClick={() => setActiveListId(u.id)}
-                className="w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 group bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                className={`w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all duration-200 group ${
+                  activeListId === u.id 
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                }`}
               >
-                <img src={u.avatar} className="w-8 h-8 rounded-full object-cover border border-white/10 group-hover:border-indigo-400/50 transition-colors" alt="" />
+                <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.name}&background=6366f1&color=fff`} className="w-8 h-8 rounded-full object-cover border border-white/10 group-hover:border-indigo-400/50 transition-colors" alt="" />
                 <div className="text-left flex-1 min-w-0">
                   <div className="truncate font-semibold">{u.name}</div>
                 </div>
@@ -336,7 +477,10 @@ export default function Dashboard({ session, onLogout }) {
         <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-8 py-5 flex justify-between items-center shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-white">My Wishlist</h1>
+              {/* Dynamic Header Text */}
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                {isMyList ? "My Wishlist" : `${activeUser.name}'s Wishlist`}
+              </h1>
               <Sparkles className="w-5 h-5 text-indigo-400" />
             </div>
 
@@ -384,17 +528,19 @@ export default function Dashboard({ session, onLogout }) {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
               
               {/* ADD BUTTON CARD */}
-              <button 
-                onClick={() => setIsModalOpen(true)}
-                className="group h-full min-h-[320px] flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl hover:border-indigo-500 hover:bg-indigo-500/5 transition-all duration-300 text-gray-500 hover:text-indigo-400 relative overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <div className="w-14 h-14 rounded-full bg-slate-800 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center mb-4 transition-all shadow-lg group-hover:scale-110 z-10">
-                  <Plus className="w-6 h-6" />
-                </div>
-                <span className="font-semibold z-10">Add new gift</span>
-                <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
-              </button>
+              {isMyList && (
+                <button 
+                  onClick={() => setIsModalOpen(true)}
+                  className="group h-full min-h-[320px] flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl hover:border-indigo-500 hover:bg-indigo-500/5 transition-all duration-300 text-gray-500 hover:text-indigo-400 relative overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="w-14 h-14 rounded-full bg-slate-800 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center mb-4 transition-all shadow-lg group-hover:scale-110 z-10">
+                    <Plus className="w-6 h-6" />
+                  </div>
+                  <span className="font-semibold z-10">Add new gift</span>
+                  <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
+                </button>
+              )}
               
               {/* GIFT CARDS */}
               {userGifts.map(gift => {
@@ -448,9 +594,9 @@ export default function Dashboard({ session, onLogout }) {
                           <button 
                             onClick={() => handleReserve(gift.id)}
                             disabled={isReserved}
-                            className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40"
+                            className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <Gift className="w-4 h-4" /> Reserve Gift
+                            <Gift className="w-4 h-4" /> {isReserved ? (isReservedByMe ? "Reserved by You" : "Reserved") : "Reserve Gift"}
                           </button>
                         )}
                       </div>
