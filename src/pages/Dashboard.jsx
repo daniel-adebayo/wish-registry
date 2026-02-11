@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
-import { Gift, Plus, Calendar, LogOut, CheckCircle2, Trash2, Sparkles, Search, X, Camera, Upload } from 'lucide-react';
+import { Gift, Plus, Calendar, LogOut, CheckCircle2, Trash2, Sparkles, Search, X, Camera, Upload, DollarSign } from 'lucide-react';
 
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
@@ -21,8 +21,9 @@ export default function Dashboard({ session, onLogout }) {
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editName, setEditName] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
-  
-  const [newGift, setNewGift] = useState({ name: '', price: '', description: '', image: '' });
+
+  // Add Gift State
+  const [newGift, setNewGift] = useState({ name: '', price: '', currency: 'USD', description: '', image: '' });
   const fileInputRef = useRef(null);
 
   // --- EFFECTS ---
@@ -51,13 +52,40 @@ export default function Dashboard({ session, onLogout }) {
     return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
   };
 
+  // Currency Options
+  const currencies = [
+    { code: 'USD', symbol: '$' },
+    { code: 'EUR', symbol: '€' },
+    { code: 'GBP', symbol: '£' },
+    { code: 'JPY', symbol: '¥' },
+    { code: 'NGN', symbol: '₦' },
+    { code: 'CAD', symbol: 'C$' },
+    { code: 'AUD', symbol: 'A$' },
+    { code: 'INR', symbol: '₹' }
+  ];
+
+  // Helper to format numbers with commas
+  const formatNumber = (val) => {
+    // Remove anything that isn't a number
+    const clean = val.replace(/[^0-9]/g, '');
+    if (clean) {
+      return Number(clean).toLocaleString();
+    }
+    return '';
+  };
+
+  // Handle Price Input Change
+  const handlePriceChange = (e) => {
+    setNewGift({...newGift, price: formatNumber(e.target.value)});
+  };
+
   // Handle File Selection (Base64)
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setEditAvatarUrl(reader.result); 
+        setEditAvatarUrl(reader.result); // This is base64 string
       };
       reader.readAsDataURL(file);
     }
@@ -98,21 +126,38 @@ export default function Dashboard({ session, onLogout }) {
       setAvatarUrl(editAvatarUrl);
       setBirthday(editBirthday);
       
-      setIsProfileModalOpen(false); 
+      setIsProfileModalOpen(false); // Close Modal
       addNotification("Profile updated successfully!");
     }
   };
 
   const handleAddGift = async (e) => {
     e.preventDefault();
+    
+    // Find currency symbol
+    const selectedCurrencyObj = currencies.find(c => c.code === newGift.currency);
+    const symbol = selectedCurrencyObj ? selectedCurrencyObj.symbol : '$';
+
+    // Combine Symbol + Formatted Number (e.g., "$3,000")
+    const finalPrice = `${symbol}${newGift.price}`;
+
     const { error } = await supabase.from('gifts').insert([
       { 
-        name: newGift.name, price: newGift.price, description: newGift.description,
-        image_url: newGift.image, owner_id: session.user.id, reserved_by: null 
+        name: newGift.name, 
+        price: finalPrice, // Save with currency
+        description: newGift.description,
+        image_url: newGift.image, 
+        owner_id: session.user.id, 
+        reserved_by: null 
       }
     ]);
     if (error) alert("Error adding gift");
-    else { setIsModalOpen(false); setNewGift({ name: '', price: '', description: '', image: '' }); fetchGifts(); addNotification("New gift added!"); }
+    else { 
+      setIsModalOpen(false); 
+      setNewGift({ name: '', price: '', currency: 'USD', description: '', image: '' }); // Reset
+      fetchGifts(); 
+      addNotification("New gift added!"); 
+    }
   };
 
   const handleReserve = async (giftId) => {
@@ -278,9 +323,10 @@ export default function Dashboard({ session, onLogout }) {
                 <span className="font-semibold z-10">Add new gift</span>
                 <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
               </button>
-
               {/* GIFT CARDS */}
               {userGifts.map(gift => {
+                // We assume gift.price comes from DB with symbol (e.g. "$3,000")
+                // If you have old data without symbol, it just shows number.
                 const isReserved = gift.reserved_by !== null;
                 const isReservedByMe = gift.reserved_by === session.user.id;
                 
@@ -300,7 +346,7 @@ export default function Dashboard({ session, onLogout }) {
                       
                       {/* Price Badge (Glass) */}
                       <div className="absolute top-4 right-4 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold text-white border border-white/10 shadow-lg">
-                        {gift.price === 'Any' ? 'Any Price' : `$${gift.price}`}
+                        {gift.price === 'Any' ? 'Any Price' : gift.price}
                       </div>
 
                       {/* Reserved Overlay */}
@@ -362,15 +408,45 @@ export default function Dashboard({ session, onLogout }) {
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Gift Name</label>
                   <input required type="text" placeholder="e.g. Mechanical Keyboard" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.name} onChange={e => setNewGift({...newGift, name: e.target.value})} />
                 </div>
+
+                {/* CURRENCY & AMOUNT SECTION */}
                 <div className="grid grid-cols-2 gap-4">
+                  {/* Currency Selector */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Price</label>
-                    <input required type="text" placeholder="e.g. 150" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.price} onChange={e => setNewGift({...newGift, price: e.target.value})} />
+                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Currency</label>
+                    <div className="relative">
+                      <select
+                        value={newGift.currency}
+                        onChange={e => setNewGift({...newGift, currency: e.target.value})}
+                        className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all appearance-none cursor-pointer"
+                      >
+                        {currencies.map(c => (
+                          <option key={c.code} value={c.code} className="bg-slate-900 text-gray-300">
+                            {c.code} ({c.symbol})
+                          </option>
+                        ))}
+                      </select>
+                      <DollarSign className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
                   </div>
+                  
+                  {/* Amount Input with Formatting */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
-                    <input type="url" placeholder="https://..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.image} onChange={e => setNewGift({...newGift, image: e.target.value})} />
+                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Amount</label>
+                    <input 
+                      required 
+                      type="text" 
+                      placeholder="0" 
+                      className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" 
+                      value={newGift.price} 
+                      onChange={handlePriceChange} 
+                    />
                   </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
+                  <input type="url" placeholder="https://..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.image} onChange={e => setNewGift({...newGift, image: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
@@ -393,7 +469,6 @@ export default function Dashboard({ session, onLogout }) {
             </div>
             <div className="p-6">
               <form onSubmit={handleProfileSave} className="space-y-5">
-                
                 {/* Avatar Upload */}
                 <div className="flex flex-col items-center gap-3">
                    <div className="relative group cursor-pointer" onClick={triggerFileUpload}>
