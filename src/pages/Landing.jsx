@@ -14,11 +14,11 @@ export default function Landing({ onGetStarted }) {
 
       {/* --- NAVBAR --- */}
       <nav className="relative z-20 max-w-7xl mx-auto px-6 py-5 flex justify-between items-center gap-x-12 shrink-0">
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           <img 
             src="/images/my-logo.png" 
             alt="WishRegistry" 
-            className="w-20 h-20 object-contain"
+            className="w-10 h-10 object-contain"
           />
           <span className="font-bold text-xl tracking-tight">Wish Registry</span>
         </div>
@@ -48,7 +48,7 @@ export default function Landing({ onGetStarted }) {
             </div>
 
             <h1 className="text-4xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
-              Never buy a <br />
+              Never get a <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">bad gift again.</span>
             </h1>
 
@@ -61,11 +61,8 @@ export default function Landing({ onGetStarted }) {
                 onClick={onGetStarted}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-3 rounded-xl font-bold text-lg shadow-xl shadow-indigo-600/20 transition-all hover:scale-105 hover:shadow-indigo-600/40 flex items-center justify-center gap-2"
               >
-                Get Started Free
+                Get Started
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
-              </button>
-              <button className="px-8 py-3 rounded-xl font-bold text-lg border border-gray-700 hover:bg-white/5 transition-all text-white">
-                View Demo
               </button>
             </div>
 
@@ -77,7 +74,7 @@ export default function Landing({ onGetStarted }) {
                   </div>
                 ))}
               </div>
-              <p>Trusted by 10,000+ happy gifters</p>
+              <p>Soon to be trusted by 10,000+ happy gifters</p>
             </div>
           </div>
 

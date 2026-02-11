@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
-import { Gift, Plus, Calendar, LogOut, CheckCircle2, Trash2, Sparkles, Search, X, Camera, Upload, DollarSign } from 'lucide-react';
+import { Gift, Plus, Calendar, LogOut, Trash2, Sparkles, Search, X, Camera, Upload, DollarSign, Image } from 'lucide-react';
 
 export default function Dashboard({ session, onLogout }) {
   // --- STATE ---
-  const [activeListId, setActiveListId] = useState(session.user.id);
+  const [activeListId, setActiveListId] = useState(session?.user?.id || '');
   const [notifications, setNotifications] = useState([]);
   const [gifts, setGifts] = useState([]);
+  const [uploading, setUploading] = useState(false); // Loading state for uploads
   
   // User Data State
-  const [birthday, setBirthday] = useState(session.user.user_metadata?.birthday || '');
-  const [avatarUrl, setAvatarUrl] = useState(session.user.user_metadata?.avatar_url || '');
-  const [displayName, setDisplayName] = useState(session.user.user_metadata?.full_name || session.user.email.split('@')[0]);
+  const [birthday, setBirthday] = useState(session?.user?.user_metadata?.birthday || '');
+  const [avatarUrl, setAvatarUrl] = useState(session?.user?.user_metadata?.avatar_url || '');
+  const [displayName, setDisplayName] = useState(session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'User');
   
   // UI State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -21,29 +22,184 @@ export default function Dashboard({ session, onLogout }) {
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editName, setEditName] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState(null); // Holds the profile file object
 
   // Add Gift State
   const [newGift, setNewGift] = useState({ name: '', price: '', currency: 'USD', description: '', image: '' });
+  const [selectedGiftFile, setSelectedGiftFile] = useState(null); // Holds the gift file object
   const fileInputRef = useRef(null);
+  const giftFileInputRef = useRef(null); // Separate ref for gift input
 
   // --- EFFECTS ---
+  const hasFetchedData = useRef(false);
+
   useEffect(() => {
-    fetchGifts();
-    // Initialize local state from session
-    const meta = session.user.user_metadata || {};
-    setBirthday(meta.birthday || '');
-    setAvatarUrl(meta.avatar_url || '');
+    if (hasFetchedData.current) return;
+    if (session?.user?.id) {
+      fetchGifts();
+      hasFetchedData.current = true;
+    }
   }, [session]);
 
   async function fetchGifts() {
-    const { data, error } = await supabase.from('gifts').select('*');
-    if (error) console.error("Error fetching gifts:", error);
-    else setGifts(data);
+    try {
+      const { data, error } = await supabase.from('gifts').select('*');
+      if (error) throw error;
+      setGifts(data || []);
+    } catch (error) {
+      console.error("Error fetching gifts:", error.message);
+      setGifts([]);
+    }
   }
 
   // --- HANDLERS ---
   
-  // Helper to format dates to "Month Day"
+  // 1. Helper to Upload Image to Supabase Storage
+  const uploadImage = async (file) => {
+    if (!file) return null;
+    
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      // Upload to 'images' bucket
+      let { error: uploadError } = await supabase.storage
+        .from('images')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get Public URL
+      const { data } = supabase.storage
+        .from('images')
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Image upload failed. Ensure the "images" bucket exists and is public.');
+      return null;
+    }
+  };
+
+  // 2. Profile File Selection
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedAvatarFile(file); // Store the file object
+      setEditAvatarUrl(URL.createObjectURL(file)); // Create local preview
+    }
+  };
+
+  // 3. Profile Save
+  const handleProfileSave = async (e) => {
+    e.preventDefault();
+    setUploading(true);
+
+    let finalAvatarUrl = avatarUrl; // Default to existing
+
+    // If user selected a new file, upload it
+    if (selectedAvatarFile) {
+      const url = await uploadImage(selectedAvatarFile);
+      if (url) {
+        finalAvatarUrl = url;
+      } else {
+        setUploading(false);
+        return; // Stop if upload failed
+      }
+    }
+    
+    // Update Supabase Auth
+    const { error } = await supabase.auth.updateUser({
+      data: { 
+        full_name: editName,
+        avatar_url: finalAvatarUrl, 
+        birthday: editBirthday 
+      }
+    });
+    
+    if (error) {
+      console.error("Failed to update profile:", error);
+      alert("Could not save profile changes.");
+    } else {
+      // Update Local State
+      setDisplayName(editName);
+      setAvatarUrl(finalAvatarUrl);
+      setBirthday(editBirthday);
+      
+      setIsProfileModalOpen(false);
+      setSelectedAvatarFile(null); 
+      addNotification("Profile updated successfully!");
+    }
+    setUploading(false);
+  };
+
+  // 4. Add Gift File Selection
+  const handleGiftFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedGiftFile(file);
+      // We don't set newGift.image here, we just hold the file.
+      // Optionally show a preview name
+      setNewGift(g => ({...g, image: file.name})); 
+    }
+  };
+
+  // 5. Add Gift Submit
+  const handleAddGift = async (e) => {
+    e.preventDefault();
+    setUploading(true);
+    
+    let finalImageUrl = newGift.image; // Default to what user typed (or empty)
+
+    // If a file was selected, upload it
+    if (selectedGiftFile) {
+      const url = await uploadImage(selectedGiftFile);
+      if (url) {
+        finalImageUrl = url;
+      }
+    }
+
+    // Prepare Price
+    const selectedCurrencyObj = currencies.find(c => c.code === newGift.currency);
+    const symbol = selectedCurrencyObj ? selectedCurrencyObj.symbol : '$';
+    const finalPrice = `${symbol}${newGift.price}`;
+
+    const { error } = await supabase.from('gifts').insert([
+      { 
+        name: newGift.name, 
+        price: finalPrice,
+        description: newGift.description,
+        image_url: finalImageUrl, // Save the URL
+        owner_id: session.user.id, 
+        reserved_by: null 
+      }
+    ]);
+    
+    if (error) {
+      alert("Error adding gift");
+      console.error(error);
+    } else { 
+      setIsModalOpen(false); 
+      setNewGift({ name: '', price: '', currency: 'USD', description: '', image: '' });
+      setSelectedGiftFile(null); // Reset file
+      fetchGifts(); 
+      addNotification("New gift added!"); 
+    }
+    setUploading(false);
+  };
+
+  // Robust Logout
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error(error);
+    window.location.href = '/'; // Force redirect to root
+  };
+
+  // Other Helpers
   const formatBirthday = (dateStr) => {
     if (!dateStr) return 'No Date Set';
     if (!dateStr.includes('-')) return dateStr;
@@ -52,112 +208,26 @@ export default function Dashboard({ session, onLogout }) {
     return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
   };
 
-  // Currency Options
   const currencies = [
-    { code: 'USD', symbol: '$' },
-    { code: 'EUR', symbol: '€' },
-    { code: 'GBP', symbol: '£' },
-    { code: 'JPY', symbol: '¥' },
-    { code: 'NGN', symbol: '₦' },
-    { code: 'CAD', symbol: 'C$' },
-    { code: 'AUD', symbol: 'A$' },
-    { code: 'INR', symbol: '₹' }
+    { code: 'USD', symbol: '$' }, { code: 'EUR', symbol: '€' }, { code: 'GBP', symbol: '£' },
+    { code: 'JPY', symbol: '¥' }, { code: 'NGN', symbol: '₦' }, { code: 'CAD', symbol: 'C$' },
+    { code: 'AUD', symbol: 'A$' }, { code: 'INR', symbol: '₹' }
   ];
 
-  // Helper to format numbers with commas
   const formatNumber = (val) => {
-    // Remove anything that isn't a number
     const clean = val.replace(/[^0-9]/g, '');
-    if (clean) {
-      return Number(clean).toLocaleString();
-    }
-    return '';
+    return clean ? Number(clean).toLocaleString() : '';
   };
 
-  // Handle Price Input Change
   const handlePriceChange = (e) => {
     setNewGift({...newGift, price: formatNumber(e.target.value)});
   };
 
-  // Handle File Selection (Base64)
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditAvatarUrl(reader.result); // This is base64 string
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Open Profile Modal
   const openProfileModal = () => {
     setEditAvatarUrl(avatarUrl);
     setEditName(displayName);
     setEditBirthday(birthday);
     setIsProfileModalOpen(true);
-  };
-
-  // Trigger hidden file input
-  const triggerFileUpload = () => {
-    fileInputRef.current.click();
-  };
-
-  // Handle Profile Save
-  const handleProfileSave = async (e) => {
-    e.preventDefault();
-    
-    // Update Supabase
-    const { error } = await supabase.auth.updateUser({
-      data: { 
-        full_name: editName,
-        avatar_url: editAvatarUrl, 
-        birthday: editBirthday 
-      }
-    });
-    
-    if (error) {
-      console.error("Failed to update profile:", error);
-      alert("Could not save profile changes. The image might be too large.");
-    } else {
-      // Update Local State Immediately
-      setDisplayName(editName);
-      setAvatarUrl(editAvatarUrl);
-      setBirthday(editBirthday);
-      
-      setIsProfileModalOpen(false); // Close Modal
-      addNotification("Profile updated successfully!");
-    }
-  };
-
-  const handleAddGift = async (e) => {
-    e.preventDefault();
-    
-    // Find currency symbol
-    const selectedCurrencyObj = currencies.find(c => c.code === newGift.currency);
-    const symbol = selectedCurrencyObj ? selectedCurrencyObj.symbol : '$';
-
-    // Combine Symbol + Formatted Number (e.g., "$3,000")
-    const finalPrice = `${symbol}${newGift.price}`;
-
-    const { error } = await supabase.from('gifts').insert([
-      { 
-        name: newGift.name, 
-        price: finalPrice, // Save with currency
-        description: newGift.description,
-        image_url: newGift.image, 
-        owner_id: session.user.id, 
-        reserved_by: null 
-      }
-    ]);
-    if (error) alert("Error adding gift");
-    else { 
-      setIsModalOpen(false); 
-      setNewGift({ name: '', price: '', currency: 'USD', description: '', image: '' }); // Reset
-      fetchGifts(); 
-      addNotification("New gift added!"); 
-    }
   };
 
   const handleReserve = async (giftId) => {
@@ -185,19 +255,14 @@ export default function Dashboard({ session, onLogout }) {
   if (!session || !session.user) return <div className="p-10 text-center text-white">Loading...</div>;
 
   const user = session.user;
-  
-  // Use local state values
   const currentAvatar = avatarUrl || `https://ui-avatars.com/api/?name=${displayName}&background=6366f1&color=fff`;
 
-  // Since there are no fake users, 'allUsers' is just the current user
   const allUsers = [
     { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday }
   ];
 
-  // Since only your list is available, you are always active
   const isMyList = true; 
   const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
-
   const userGifts = gifts.filter(g => g.owner_id === activeListId);
 
   return (
@@ -217,15 +282,11 @@ export default function Dashboard({ session, onLogout }) {
       <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none"></div>
 
-      {/* --- SIDEBAR (Glassmorphism) --- */}
+      {/* --- SIDEBAR --- */}
       <aside className="relative z-10 w-72 bg-slate-900/40 backdrop-blur-xl border-r border-white/5 flex flex-col md:flex">
         <div className="p-6 flex items-center gap-3 border-b border-white/5">
-          <img 
-            src="/images/my-logo.png" 
-            alt="Logo" 
-            className="w-8 h-8 object-contain"
-          />
-          <span className="font-bold tracking-tight text-lg">WishRegistry</span>
+          <img src="/images/my-logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+          <span className="font-bold tracking-tight text-lg">Wish Registry</span>
         </div>
 
         <div className="flex-1 overflow-y-auto py-6 px-3">
@@ -247,7 +308,8 @@ export default function Dashboard({ session, onLogout }) {
         </div>
 
         <div className="p-4 border-t border-white/5">
-          <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/5 hover:border-red-500/20 rounded-xl transition-all">
+          {/* Updated Logout to use handleLogout */}
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-gray-400 bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/5 hover:border-red-500/20 rounded-xl transition-all">
             <LogOut className="w-4 h-4" /> <span>Logout</span>
           </button>
         </div>
@@ -256,18 +318,14 @@ export default function Dashboard({ session, onLogout }) {
       {/* --- MAIN CONTENT --- */}
       <main className="relative z-10 flex-1 flex flex-col h-full overflow-hidden">
         
-        {/* HEADER (Glass) */}
+        {/* HEADER */}
         <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-8 py-5 flex justify-between items-center shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-            
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-white">
-                My Wishlist
-              </h1>
+              <h1 className="text-2xl font-bold tracking-tight text-white">My Wishlist</h1>
               <Sparkles className="w-5 h-5 text-indigo-400" />
             </div>
 
-            {/* BIRTHDAY BADGE */}
             <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full">
               <Calendar className="w-4 h-4 text-gray-400" />
               <span className="text-xs font-medium text-gray-300 uppercase tracking-wide">
@@ -276,7 +334,6 @@ export default function Dashboard({ session, onLogout }) {
             </div>
           </div>
 
-          {/* CLICKABLE PROFILE AREA */}
           <button 
             onClick={openProfileModal}
             className="flex items-center gap-4 hover:bg-white/5 p-2 -mr-2 rounded-xl transition-colors group cursor-pointer"
@@ -287,7 +344,6 @@ export default function Dashboard({ session, onLogout }) {
             </div>
             <div className="relative w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
                 <img src={currentAvatar} className="w-full h-full rounded-full object-cover bg-slate-900" alt="Profile" />
-                {/* Edit Icon Overlay */}
                 <div className="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <Camera className="w-4 h-4 text-white" />
                 </div>
@@ -299,7 +355,7 @@ export default function Dashboard({ session, onLogout }) {
         <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto">
             
-            {/* SEARCH / FILTER */}
+            {/* SEARCH */}
             <div className="mb-8 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
               <input 
@@ -323,10 +379,9 @@ export default function Dashboard({ session, onLogout }) {
                 <span className="font-semibold z-10">Add new gift</span>
                 <span className="text-xs mt-2 opacity-60 z-10">Start a new wishlist item</span>
               </button>
+              
               {/* GIFT CARDS */}
               {userGifts.map(gift => {
-                // We assume gift.price comes from DB with symbol (e.g. "$3,000")
-                // If you have old data without symbol, it just shows number.
                 const isReserved = gift.reserved_by !== null;
                 const isReservedByMe = gift.reserved_by === session.user.id;
                 
@@ -344,12 +399,10 @@ export default function Dashboard({ session, onLogout }) {
                         </div>
                       )}
                       
-                      {/* Price Badge (Glass) */}
                       <div className="absolute top-4 right-4 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold text-white border border-white/10 shadow-lg">
                         {gift.price === 'Any' ? 'Any Price' : gift.price}
                       </div>
 
-                      {/* Reserved Overlay */}
                       {isReserved && !isMyList && (
                         <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-center z-20">
                           <div className="bg-indigo-600 text-white px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-3 shadow-xl shadow-indigo-600/30">
@@ -409,50 +462,45 @@ export default function Dashboard({ session, onLogout }) {
                   <input required type="text" placeholder="e.g. Mechanical Keyboard" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.name} onChange={e => setNewGift({...newGift, name: e.target.value})} />
                 </div>
 
-                {/* CURRENCY & AMOUNT SECTION */}
+                {/* CURRENCY & AMOUNT */}
                 <div className="grid grid-cols-2 gap-4">
-                  {/* Currency Selector */}
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Currency</label>
                     <div className="relative">
-                      <select
-                        value={newGift.currency}
-                        onChange={e => setNewGift({...newGift, currency: e.target.value})}
-                        className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all appearance-none cursor-pointer"
-                      >
-                        {currencies.map(c => (
-                          <option key={c.code} value={c.code} className="bg-slate-900 text-gray-300">
-                            {c.code} ({c.symbol})
-                          </option>
-                        ))}
+                      <select value={newGift.currency} onChange={e => setNewGift({...newGift, currency: e.target.value})} className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all appearance-none cursor-pointer">
+                        {currencies.map(c => (<option key={c.code} value={c.code} className="bg-slate-900 text-gray-300">{c.code} ({c.symbol})</option>))}
                       </select>
                       <DollarSign className="absolute right-3 top-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>
                   </div>
-                  
-                  {/* Amount Input with Formatting */}
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Amount</label>
-                    <input 
-                      required 
-                      type="text" 
-                      placeholder="0" 
-                      className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" 
-                      value={newGift.price} 
-                      onChange={handlePriceChange} 
-                    />
+                    <input required type="text" placeholder="0" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={newGift.price} onChange={handlePriceChange} />
                   </div>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
-                  <input type="url" placeholder="https://..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" value={newGift.image} onChange={e => setNewGift({...newGift, image: e.target.value})} />
+                {/* IMAGE UPLOAD SECTION */}
+                <div className="grid grid-cols-2 gap-4 items-end">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
+                    <input type="url" placeholder="https://..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={newGift.image} onChange={e => { setNewGift({...newGift, image: e.target.value}); setSelectedGiftFile(null); }} />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Or Upload</label>
+                     <input type="file" accept="image/*" ref={giftFileInputRef} className="hidden" onChange={handleGiftFileChange} />
+                     <button type="button" onClick={() => giftFileInputRef.current.click()} className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-xl text-sm text-gray-300 hover:bg-slate-700 transition-all flex items-center justify-center gap-2">
+                        <Upload className="w-4 h-4" /> {selectedGiftFile ? "File Selected" : "Upload Photo"}
+                     </button>
+                  </div>
                 </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
                   <textarea rows="3" placeholder="Add details..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none resize-none text-white placeholder-gray-600 transition-all" value={newGift.description} onChange={e => setNewGift({...newGift, description: e.target.value})} />
                 </div>
-                <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.01]">Add to wishlist</button>
+                <button type="submit" disabled={uploading} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.01] disabled:opacity-50">
+                    {uploading ? "Uploading..." : "Add to wishlist"}
+                </button>
               </form>
             </div>
           </div>
@@ -471,7 +519,7 @@ export default function Dashboard({ session, onLogout }) {
               <form onSubmit={handleProfileSave} className="space-y-5">
                 {/* Avatar Upload */}
                 <div className="flex flex-col items-center gap-3">
-                   <div className="relative group cursor-pointer" onClick={triggerFileUpload}>
+                   <div className="relative group cursor-pointer" onClick={() => fileInputRef.current.click()}>
                       <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
                          <img 
                            src={editAvatarUrl || `https://ui-avatars.com/api/?name=${editName}&background=6366f1&color=fff`} 
@@ -483,40 +531,25 @@ export default function Dashboard({ session, onLogout }) {
                          <Upload className="w-6 h-6 text-white" />
                       </div>
                    </div>
-                   <input 
-                     type="file" 
-                     ref={fileInputRef} 
-                     className="hidden" 
-                     accept="image/*" 
-                     onChange={handleFileChange} 
-                   />
-                   <p className="text-xs text-gray-500">Click to upload image</p>
+                   <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
+                   <p className="text-xs text-gray-500">{selectedAvatarFile ? selectedAvatarFile.name : "Click to upload image"}</p>
                 </div>
                 
                 {/* Name Input */}
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Display Name</label>
-                  <input 
-                    type="text" 
-                    required
-                    className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all" 
-                    value={editName} 
-                    onChange={e => setEditName(e.target.value)} 
-                  />
+                  <input type="text" required className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={editName} onChange={e => setEditName(e.target.value)} />
                 </div>
                 
                 {/* Birthday Input */}
                 <div>
                   <label className="block text-sm font-medium text-gray-400 mb-1.5">Birthday</label>
-                  <input 
-                    type="date" 
-                    className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white placeholder-gray-600 transition-all [color-scheme:dark]" 
-                    value={editBirthday} 
-                    onChange={e => setEditBirthday(e.target.value)} 
-                  />
+                  <input type="date" className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all [color-scheme:dark]" value={editBirthday} onChange={e => setEditBirthday(e.target.value)} />
                 </div>
                 
-                <button type="submit" className="w-full bg-white text-slate-900 hover:bg-gray-200 font-bold py-3 rounded-xl transition-all">Save Changes</button>
+                <button type="submit" disabled={uploading} className="w-full bg-white text-slate-900 hover:bg-gray-200 font-bold py-3 rounded-xl transition-all disabled:opacity-50">
+                    {uploading ? "Saving..." : "Save Changes"}
+                </button>
               </form>
             </div>
           </div>

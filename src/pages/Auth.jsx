@@ -44,7 +44,7 @@ export default function Auth() {
         <img 
             src="/images/my-logo.png" 
             alt="WishRegistry Logo" 
-            className="mx-auto -mb-5 w-44 h-44 object-contain animate-float"
+            className="mx-auto -mb-5 w-24 h-44 object-contain animate-float"
             />
 
             {/* 2. Title (Must have w-fit and mx-auto to center properly) */}
