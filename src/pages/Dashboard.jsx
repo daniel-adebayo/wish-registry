@@ -10,20 +10,20 @@ export default function Dashboard({ session, onLogout }) {
   const [gifts, setGifts] = useState([]);
   const [uploading, setUploading] = useState(false); // Loading state for uploads
   
-  // --- NEW: Circle/Follow State ---
-  const [myCircle, setMyCircle] = useState([]); // Stores followed users
+  // --- Circle/Follow State ---
+  const [myCircle, setMyCircle] = useState([]); 
   const [searchFriendQuery, setSearchFriendQuery] = useState('');
   const [friendSearchResults, setFriendSearchResults] = useState([]);
 
-  // --- NEW: Group State ---
+  // --- Group State ---
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
-  const [generatedGroupCode, setGeneratedGroupCode] = useState(null); // Stores the generated code for UI display
+  const [generatedGroupCode, setGeneratedGroupCode] = useState(null); 
   const [editGroupCode, setEditGroupCode] = useState('');
 
-  // --- NEW: Mobile & Edit State ---
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile sidebar toggle
-  const [editingGiftId, setEditingGiftId] = useState(null); // If null = Add Mode, if ID = Edit Mode
+  // --- Mobile & Edit State ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+  const [editingGiftId, setEditingGiftId] = useState(null); 
 
   // User Data State
   const [birthday, setBirthday] = useState(session?.user?.user_metadata?.birthday || '');
@@ -38,13 +38,13 @@ export default function Dashboard({ session, onLogout }) {
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
   const [editName, setEditName] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
-  const [selectedAvatarFile, setSelectedAvatarFile] = useState(null); // Holds the profile file object
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState(null); 
 
   // Add/Edit Gift State
   const [newGift, setNewGift] = useState({ name: '', price: '', currency: 'NGN', description: '', image: '' });
-  const [selectedGiftFile, setSelectedGiftFile] = useState(null); // Holds the gift file object
+  const [selectedGiftFile, setSelectedGiftFile] = useState(null); 
   const fileInputRef = useRef(null);
-  const giftFileInputRef = useRef(null); // Separate ref for gift input
+  const giftFileInputRef = useRef(null); 
 
   // --- EFFECTS ---
   const hasFetchedData = useRef(false);
@@ -132,24 +132,35 @@ export default function Dashboard({ session, onLogout }) {
       return;
     }
 
-    // 1. I follow them
     const { error: error1 } = await supabase
       .from('follows')
       .insert([{ follower_id: session.user.id, following_id: targetId }]);
 
-    // 2. They follow me (Mutual)
     const { error: error2 } = await supabase
       .from('follows')
       .insert([{ follower_id: targetId, following_id: session.user.id }]);
 
-    if ((error1 && error1.code !== '23505') || (error2 && error2.code !== '23505')) {
-      alert("Could not follow.");
-    } else {
-      setSearchFriendQuery(''); 
-      setFriendSearchResults([]);
-      await fetchMyCircle(); 
-      addNotification("Added to circle!");
+    if (error1 || error2) {
+      const err = error1 || error2;
+
+      if (err.code === '23505') {
+        // Ignore duplicate error, implies first step worked or existed
+      } 
+      else if (err.code === '23503') {
+         alert("This user profile does not exist.");
+         return;
+      } 
+      else {
+        console.error("Follow Error:", err);
+        alert("Could not follow.");
+        return;
+      }
     }
+
+    setSearchFriendQuery(''); 
+    setFriendSearchResults([]);
+    await fetchMyCircle(); 
+    addNotification("Added to circle!");
   };
 
   // --- GROUP FUNCTIONS ---
@@ -186,7 +197,6 @@ export default function Dashboard({ session, onLogout }) {
   const handleJoinGroupLogic = async (code) => {
     if (!code) return;
 
-    // 1. Find Group
     const { data: group, error: findError } = await supabase
       .from('groups')
       .select('id')
@@ -198,12 +208,10 @@ export default function Dashboard({ session, onLogout }) {
       return false;
     }
 
-    // 2. Add to Group Members
     await supabase.from('group_members').insert([
       { group_id: group.id, user_id: session.user.id }
-    ]).ignoreDuplicates(); // Ignore if already member
+    ]).ignoreDuplicates(); 
 
-    // 3. Fetch other members
     const { data: members } = await supabase
       .from('group_members')
       .select('user_id')
@@ -211,7 +219,6 @@ export default function Dashboard({ session, onLogout }) {
       .neq('user_id', session.user.id);
 
     if (members && members.length > 0) {
-      // 4. Create Mutual Follows
       const followPromises = members.map(member => {
         return Promise.all([
           supabase.from('follows').insert([{ follower_id: session.user.id, following_id: member.user_id }]),
@@ -273,7 +280,7 @@ export default function Dashboard({ session, onLogout }) {
     
     setEditGroupCode(profile?.group_code || '');
     setIsProfileModalOpen(true);
-    setIsSidebarOpen(false); // Close sidebar on mobile when opening modal
+    setIsSidebarOpen(false); 
   };
 
   const handleProfileSave = async (e) => {
@@ -292,6 +299,12 @@ export default function Dashboard({ session, onLogout }) {
       data: { full_name: editName, avatar_url: finalAvatarUrl, birthday: editBirthday }
     });
 
+    if (authError) {
+      alert(`Auth Error: ${authError.message}`);
+      setUploading(false);
+      return;
+    }
+
     const { error: profileError } = await supabase
       .from('profiles')
       .upsert({
@@ -303,8 +316,11 @@ export default function Dashboard({ session, onLogout }) {
         updated_at: new Date()
       });
     
-    if (authError || profileError) {
-      alert("Could not save profile changes.");
+    if (profileError) {
+      console.error("Profile DB Error:", profileError); 
+      alert(`Profile Save Error: ${profileError.message}`); 
+      setUploading(false);
+      return;
     } else {
       setDisplayName(editName);
       setAvatarUrl(finalAvatarUrl);
@@ -323,8 +339,6 @@ export default function Dashboard({ session, onLogout }) {
   };
 
   // --- GIFT HANDLERS ---
-  
-  // Open Modal for Adding
   const openAddModal = () => {
     setEditingGiftId(null);
     setNewGift({ name: '', price: '', currency: 'NGN', description: '', image: '' });
@@ -332,13 +346,12 @@ export default function Dashboard({ session, onLogout }) {
     setIsModalOpen(true);
   };
 
-  // Open Modal for Editing
   const openEditModal = (gift) => {
     setEditingGiftId(gift.id);
     setNewGift({
       name: gift.name,
-      price: gift.price, // Note: price includes symbol currently, usually better to store raw, but editing existing data
-      currency: gift.currency || 'NGN', // Fallback if old data
+      price: gift.price, 
+      currency: gift.currency || 'NGN', 
       description: gift.description,
       image: gift.image_url || ''
     });
@@ -346,14 +359,12 @@ export default function Dashboard({ session, onLogout }) {
     setIsModalOpen(true);
   };
 
-  // Combined Handle Submit (Add or Update)
   const handleGiftSubmit = async (e) => {
     e.preventDefault();
     setUploading(true);
     
     let finalImageUrl = newGift.image; 
 
-    // Handle Image Upload if new file selected
     if (selectedGiftFile) {
       const url = await uploadImage(selectedGiftFile);
       if (url) finalImageUrl = url;
@@ -364,7 +375,6 @@ export default function Dashboard({ session, onLogout }) {
     const finalPrice = `${symbol}${newGift.price}`;
 
     if (editingGiftId) {
-      // --- UPDATE MODE ---
       const { error } = await supabase.from('gifts').update({
         name: newGift.name, 
         price: finalPrice,
@@ -384,7 +394,6 @@ export default function Dashboard({ session, onLogout }) {
         addNotification("Gift updated!"); 
       }
     } else {
-      // --- INSERT MODE ---
       const { error } = await supabase.from('gifts').insert([
         { 
           name: newGift.name, 
@@ -447,7 +456,6 @@ export default function Dashboard({ session, onLogout }) {
     window.location.href = '/';
   };
 
-  // Helpers
   const formatBirthday = (dateStr) => {
     if (!dateStr) return 'No Date Set';
     const date = new Date(dateStr);
@@ -474,13 +482,14 @@ export default function Dashboard({ session, onLogout }) {
   const user = session.user;
   const currentAvatar = avatarUrl || `https://ui-avatars.com/api/?name=${displayName}&background=6366f1&color=fff`;
 
+  // --- LOGIC BLOCK (Must be at bottom, before return) ---
   const allUsers = [
     { id: user.id, name: displayName, avatar: currentAvatar, isMe: true, birthday: birthday },
     ...myCircle
   ];
 
-  const isMyList = activeListId === user.id; 
-  const activeUser = { name: displayName, avatar: currentAvatar, birthday: birthday }; 
+  const activeUser = allUsers.find(u => u.id === activeListId) || { name: 'Unknown', avatar: '', birthday: '' }; 
+  const isMyList = activeUser.id === session.user.id; 
 
   const userGifts = gifts.filter(gift => {
     const isOwner = gift.owner_id === activeListId;
@@ -523,7 +532,6 @@ export default function Dashboard({ session, onLogout }) {
             <img src="/images/my-logo.png" alt="Logo" className="w-8 h-8 object-contain" />
             <span className="font-bold tracking-tight text-lg">Wish Registry</span>
           </div>
-          {/* Close button for mobile */}
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-gray-400 hover:text-white">
             <X className="w-5 h-5" />
           </button>
@@ -532,7 +540,6 @@ export default function Dashboard({ session, onLogout }) {
         <div className="flex-1 overflow-y-auto py-6 px-3 flex flex-col">
           <p className="px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Your Circle</p>
           
-          {/* List Users */}
           <nav className="space-y-1">
             {allUsers.map(u => (
               <button
@@ -563,11 +570,14 @@ export default function Dashboard({ session, onLogout }) {
       {/* --- MAIN CONTENT --- */}
       <main className="relative z-10 flex-1 flex flex-col h-full overflow-hidden">
         
-        {/* HEADER */}
-        <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-3 md:py-5 flex justify-between items-center shrink-0 gap-2 md:gap-4">
+      {/* HEADER */}
+      <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-3 md:py-5 flex justify-between items-center shrink-0 gap-2 md:gap-4">
+        
+        {/* LEFT SECTION: Title + Moved Actions */}
+        <div className="flex items-center justify-between flex-1 gap-2 md:gap-4">
           
-          {/* Left Section: Hamburger + Title */}
-          <div className="flex items-center gap-3 flex-1">
+          {/* Left Side: Hamburger + Title */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-gray-400 hover:text-white p-1">
               <Menu className="w-6 h-6" />
             </button>
@@ -588,17 +598,15 @@ export default function Dashboard({ session, onLogout }) {
             </div>
           </div>
 
-          {/* Right Section: Actions + Profile */}
-          <div className="flex items-center gap-2 md:gap-4">
+          {/* Right Side of Left Section: Search + Group (Moved Here to Center) */}
+          <div className="hidden md:flex items-center gap-3">
             
-            {/* MOBILE ACTIONS: Only visible on mobile, placed under header in a real app usually, but here side-by-side if space permits or stacked */}
-            
-            {/* FIND FRIEND SEARCH (Moved to Navbar) */}
-            <div className="relative hidden md:block group">
+            {/* FIND FRIEND SEARCH */}
+            <div className="relative group">
               <input 
                 type="text" 
                 placeholder="Find friend..." 
-                className="w-40 bg-slate-950/50 border border-white/10 rounded-full py-1.5 pl-9 pr-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:w-60 transition-all duration-300"
+                className="w-40 bg-slate-950/50 border border-white/10 rounded-full py-1.5 pl-9 pr-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all focus:w-60 duration-300"
                 value={searchFriendQuery}
                 onChange={handleSearchFriend}
               />
@@ -622,34 +630,37 @@ export default function Dashboard({ session, onLogout }) {
               )}
             </div>
 
-            {/* CREATE GROUP BUTTON (Moved to Navbar) */}
+            {/* CREATE GROUP BUTTON */}
             <button 
               onClick={() => setIsGroupModalOpen(true)}
-              className="hidden md:flex items-center justify-center gap-2 px-3 py-1.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-full hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold"
+              className="flex items-center justify-center gap-2 px-3 py-1.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-full hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold"
             >
               <Users className="w-3.5 h-3.5" /> Create Group
             </button>
-
-            {/* PROFILE BUTTON */}
-            <button 
-              onClick={openProfileModal}
-              className="flex items-center gap-2 md:gap-4 hover:bg-white/5 p-1 md:p-2 rounded-xl transition-colors group cursor-pointer"
-            >
-              <div className="hidden sm:block text-right">
-                <p className="text-[10px] text-gray-400 group-hover:text-indigo-400 transition-colors leading-tight">Signed in as</p>
-                <p className="text-xs md:text-sm font-semibold text-gray-200 truncate max-w-[100px]">{displayName}</p>
-              </div>
-              <div className="relative w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
-                  <img src={currentAvatar} className="w-full h-full rounded-full object-cover bg-slate-900" alt="Profile" />
-                  <div className="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Camera className="w-3 h-3 md:w-4 md:h-4 text-white" />
-                  </div>
-              </div>
-            </button>
           </div>
-        </header>
+        </div>
 
-        {/* MOBILE QUICK ACTIONS BAR (Visible only on small screens) */}
+        {/* RIGHT SECTION: Profile Only */}
+        <div className="flex items-center gap-2 md:gap-4 pl-2 md:pl-4 border-l border-white/5">
+          <button 
+            onClick={openProfileModal}
+            className="flex items-center gap-2 md:gap-4 hover:bg-white/5 p-1 md:p-2 rounded-xl transition-colors group cursor-pointer"
+          >
+            <div className="hidden sm:block text-right">
+              <p className="text-[10px] text-gray-400 group-hover:text-indigo-400 transition-colors leading-tight">Signed in as</p>
+              <p className="text-xs md:text-sm font-semibold text-gray-200 truncate max-w-[100px]">{displayName}</p>
+            </div>
+            <div className="relative w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 p-[2px]">
+                <img src={currentAvatar} className="w-full h-full rounded-full object-cover bg-slate-900" alt="Profile" />
+                <div className="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Camera className="w-3 h-3 md:w-4 md:h-4 text-white" />
+                </div>
+            </div>
+          </button>
+        </div>
+      </header>
+
+        {/* MOBILE QUICK ACTIONS BAR */}
         <div className="flex md:hidden px-4 py-2 gap-2 overflow-x-auto border-b border-white/5 bg-slate-900/30">
              <div className="relative flex-1">
               <input 
@@ -739,7 +750,6 @@ export default function Dashboard({ session, onLogout }) {
                         {gift.price === 'Any' ? 'Any Price' : gift.price}
                       </div>
                       
-                      {/* Mobile Edit Badge (Only visible on hover or always) - Optional, adding hover edit button */}
                       {isMyList && (
                         <button 
                           onClick={() => openEditModal(gift)}
