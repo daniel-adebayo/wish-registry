@@ -525,43 +525,35 @@ export default function Dashboard({ session, onLogout }) {
   const handleReserve = async (giftId) => {
     const currentGift = gifts.find(g => g.id === giftId);
     if (!currentGift) return;
-    
-    const isReserved = currentGift.reserved_by !== null;
+
+    // Check if I am the one who reserved it
     const isReservedByMe = currentGift.reserved_by === session.user.id;
 
-    // Decide what we want to do
-    // Case A: It's free, and I want to reserve it.
-    // Case B: It's reserved by me, and I want to cancel.
-    // Case C: It's reserved by someone else -> Do nothing (blocked by UI, but logic handles it)
+    // If I reserved it, I want to unreserve it (set to null).
+    // If it's free (or someone else has it), I want to reserve it (set to my ID).
+    const newValue = isReservedByMe ? null : session.user.id;
 
-    if (isReserved && !isReservedByMe) return; 
-
-    const shouldReserve = !isReserved;
-
-    // Perform the update with a safety check
-    // We use .is() to ensure we only update if the current state matches what we think it is
-    const { error, count } = await supabase
+    // 1. Update Database (Notice: NO .is() here)
+    const { error } = await supabase
       .from('gifts')
-      .update({ reserved_by: shouldReserve ? session.user.id : null })
-      .eq('id', giftId)
-      // Logic: If I want to reserve, ensure it is currently null (free)
-      .is('reserved_by', shouldReserve ? null : session.user.id);
+      .update({ reserved_by: newValue })
+      .eq('id', giftId);
 
     if (error) {
-      console.error("Error reserving:", error);
+      console.error("RESERVATION ERROR:", error);
+      alert(`Error reserving gift: ${error.message}`);
       return;
     }
 
-    // If count is 0, it means someone else beat us to it!
-    if (shouldReserve && count === 0) {
-      alert("Too slow! Someone else just reserved this gift.");
-      fetchGifts(); // Refresh to show it's taken
-      return;
-    }
+    // 2. Force Refresh Data
+    await fetchGifts();
 
-    // Success
-    fetchGifts(); 
-    addNotification(shouldReserve ? `Reserved "${currentGift.name}"!` : `Cancelled reservation`);
+    // 3. Notify User
+    if (isReservedByMe) {
+      addNotification("Cancelled reservation");
+    } else {
+      addNotification("Gift reserved successfully!");
+    }
   };
 
   const handleDeleteGift = async (giftId) => {
@@ -851,13 +843,13 @@ export default function Dashboard({ session, onLogout }) {
               <input 
                 type="text" 
                 placeholder="Find friend..." 
-                className="w-40 bg-slate-950/50 border border-white/10 rounded-full py-1.5 pl-9 pr-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all focus:w-60 duration-300"
+                className="w-50 bg-slate-950/50 border border-white/10 rounded-full py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all focus:w-60 duration-300"
                 value={searchFriendQuery}
                 onChange={handleSearchFriend}
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
               {friendSearchResults.length > 0 && (
-                <div className="absolute top-full right-0 mt-2 w-60 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
+                <div className="absolute top-full right-0 mt-2 w-60 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-50 max-h-40 overflow-y-auto">
                   {friendSearchResults.map(friend => (
                     <button 
                       key={friend.id}
@@ -878,7 +870,7 @@ export default function Dashboard({ session, onLogout }) {
             {/* CREATE GROUP BUTTON */}
             <button 
               onClick={() => setIsGroupModalOpen(true)}
-              className="flex items-center justify-center gap-2 px-3 py-1.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-full hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold"
+              className="flex items-center justify-center gap-2 px-3 py-1.5 bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 rounded-full hover:bg-indigo-600 hover:text-white transition-all text-sm font-semibold"
             >
               <Users className="w-3.5 h-3.5" /> Create Group
             </button>
@@ -911,7 +903,7 @@ export default function Dashboard({ session, onLogout }) {
               <input 
                 type="text" 
                 placeholder="Find friend..." 
-                className="w-full bg-slate-950/50 border border-white/10 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
+                className="w-full bg-slate-950/50 border border-white/10 rounded-lg py-3 pl-10 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-all"
                 value={searchFriendQuery}
                 onChange={handleSearchFriend}
               />
@@ -976,8 +968,8 @@ export default function Dashboard({ session, onLogout }) {
               {userGifts.map(gift => {
               const isMyList = activeUser.id === session.user.id;
               const reserver = allUsers.find(u => u.id === gift.reserved_by);
-              const isReserved = !!reserver;
-              const isReservedByMe = reserver?.id === session.user.id;
+              const isReserved = gift.reserved_by !== null;
+              const isReservedByMe = gift.reserved_by === session.user.id;
                 
                 return (
                   <div key={gift.id} className="group relative bg-slate-900/40 border border-white/5 hover:border-white/10 rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-indigo-900/20 transition-all duration-300 flex flex-col">
@@ -1002,7 +994,7 @@ export default function Dashboard({ session, onLogout }) {
                           <span>
                             {isReservedByMe 
                               ? "You reserved this" 
-                              : `Reserved by ${reserver.name || 'Someone'}`
+                              : `Reserved by ${reserver?.name || 'Someone'}`
                             }
                           </span>
                         </div>
