@@ -898,7 +898,7 @@ export default function Dashboard({ session, onLogout }) {
       </header>
 
         {/* MOBILE QUICK ACTIONS BAR */}
-        <div className="relative z-50 flex md:hidden px-4 py-2 gap-2 overflow-x-auto border-b border-white/5 bg-slate-900/30">
+        <div className="flex md:hidden px-4 py-2 gap-2 border-b border-white/5 bg-slate-900/30">
              <div className="relative flex-1">
               <input 
                 type="text" 
@@ -909,7 +909,7 @@ export default function Dashboard({ session, onLogout }) {
               />
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
               {friendSearchResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-white/10 rounded-lg shadow-xl z-[9999] max-h-40 overflow-y-auto">
                   {friendSearchResults.map(friend => (
                     <button 
                       key={friend.id}
