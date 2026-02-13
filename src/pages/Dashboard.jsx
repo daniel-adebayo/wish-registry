@@ -518,7 +518,7 @@ export default function Dashboard({ session, onLogout }) {
     const file = e.target.files[0];
     if (file) {
       setSelectedGiftFile(file);
-      setNewGift(g => ({...g, image: file.name})); 
+      setNewGift(g => ({...g, image: ''})); 
     }
   };
 
@@ -826,9 +826,9 @@ export default function Dashboard({ session, onLogout }) {
                 </h1>
                 <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-indigo-400" />
               </div>
-              <div className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-white/5 border border-white/10 rounded-full sm:flex">
-                <Calendar className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
-                <span className="text-[10px] md:text-xs font-medium text-gray-300 uppercase tracking-wide">
+              <div className="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-indigo-600/10 border border-indigo-500/20 rounded sm:flex">
+                <Calendar className="w-3 h-3 md:w-4 md:h-4 text-indigo-500" />
+                <span className="text-[10px] md:text-xs font-bold text-white-500 uppercase tracking-wide">
                   {formatBirthday(activeUser.birthday)}
                 </span>
               </div>
