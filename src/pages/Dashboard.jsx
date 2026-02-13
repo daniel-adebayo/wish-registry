@@ -898,7 +898,7 @@ export default function Dashboard({ session, onLogout }) {
       </header>
 
         {/* MOBILE QUICK ACTIONS BAR */}
-        <div className="flex md:hidden px-4 py-2 gap-2 overflow-x-auto border-b border-white/5 bg-slate-900/30">
+        <div className="relative z-50 flex md:hidden px-4 py-2 gap-2 overflow-x-auto border-b border-white/5 bg-slate-900/30">
              <div className="relative flex-1">
               <input 
                 type="text" 
