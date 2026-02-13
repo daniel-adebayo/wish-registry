@@ -148,7 +148,7 @@ export default function Dashboard({ session, onLogout }) {
     
     const { data: allMembersData, error: membersError } = await supabase
       .from('group_members')
-      .select('group_id, user_id, profiles(full_name, avatar_url, username)')
+      .select('group_id, user_id, profiles(full_name, avatar_url, username, birthday)')
       .in('group_id', groupIds);
 
     if (membersError) {
