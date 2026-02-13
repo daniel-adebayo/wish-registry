@@ -1059,13 +1059,30 @@ export default function Dashboard({ session, onLogout }) {
                             </button>
                           </>
                         ) : (
-                          <button 
-                            onClick={() => handleReserve(gift.id)}
-                            disabled={isReserved}
-                            className="w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Gift className="w-4 h-4" /> {isReserved ? (isReservedByMe ? "Reserved by You" : "Reserved") : "Reserve Gift"}
-                          </button>
+                                                  <button 
+                          onClick={() => handleReserve(gift.id)}
+                          // Only disable if reserved by SOMEONE ELSE
+                          // Enable if it's free OR if I am the one who reserved it
+                          disabled={isReserved && !isReservedByMe}
+                          className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg ${
+                            isReservedByMe 
+                              // RED STYLE if I reserved it (Cancel) 
+                              ? 'bg-gray-600 hover:bg-gray-500 text-white shadow-gray-600/20' 
+                              : (isReserved 
+                                  // DISABLED STYLE if someone else has it
+                                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed opacity-50' 
+                                  // BLUE STYLE if it's free
+                                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20 hover:shadow-indigo-600/40'
+                                )
+                          }`}
+                        >
+                          <Gift className="w-4 h-4" /> 
+                          
+                          {isReservedByMe 
+                            ? "Cancel Reservation" 
+                            : (isReserved ? "Reserved" : "Reserve Gift")
+                          }
+                        </button>
                         )}
                       </div>
                     </div>
