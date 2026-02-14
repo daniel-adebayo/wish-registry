@@ -805,10 +805,10 @@ export default function Dashboard({ session, onLogout }) {
       </aside>
 
       {/* --- MAIN CONTENT --- */}
-      <main className="relative z-10 flex-1 flex flex-col h-full overflow-hidden">
+      <main className="relative flex-1 flex flex-col h-full">
         
       {/* HEADER */}
-      <header className="bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-3 md:py-3 flex justify-between items-center shrink-0 gap-2 md:gap-4">
+      <header className="relative z-[100] bg-slate-900/50 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-3 md:py-3 flex justify-between items-center shrink-0 gap-2 md:gap-4">
         
         {/* LEFT SECTION: Title + Moved Actions */}
         <div className="flex items-center justify-between flex-1 gap-2 md:gap-4">
