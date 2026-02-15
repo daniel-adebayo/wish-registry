@@ -994,7 +994,7 @@ export default function Dashboard({ session, onLogout }) {
                           <span>
                             {isReservedByMe 
                               ? "You reserved this" 
-                              : `Reserved by ${reserver?.name || 'Someone'}`
+                              : `Reserved`
                             }
                           </span>
                         </div>
@@ -1193,7 +1193,7 @@ export default function Dashboard({ session, onLogout }) {
 
       {/* EDIT PROFILE MODAL */}
       {isProfileModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
           <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
             <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
               <h3 className="font-bold text-lg text-white">Edit Profile</h3>
