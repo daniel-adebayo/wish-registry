@@ -204,23 +204,35 @@ export default function Dashboard({ session, onLogout }) {
   };
 
   // --- SEARCH FRIEND ---
-  const handleSearchFriend = async (e) => {
-    const term = e.target.value;
-    setSearchFriendQuery(term);
+const handleSearchFriend = async (e) => {
+  const term = e.target.value;
+  setSearchFriendQuery(term);
 
-    if (term.length > 1) {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, username, avatar_url')
-        .or(`full_name.ilike.%${term}%,username.ilike.%${term}%`)
-        .limit(5);
+  // 1. If the term is empty or just one letter, clear immediately and STOP.
+  if (term.length <= 1) {
+    setFriendSearchResults([]);
+    return;
+  }
 
-      if (!error) setFriendSearchResults(data || []);
-    } else {
-      setFriendSearchResults([]);
-    }
-  };
+  // 2. Perform the search
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, username, avatar_url')
+    .or(`full_name.ilike.%${term}%,username.ilike.%${term}%`)
+    .limit(5);
 
+  if (!error) {
+    // 3. THE MAGIC FIX: Only update the results if the search box 
+    // STILL matches the term we just searched for.
+    // If the user has cleared the box while we were waiting, this will be false.
+    setSearchFriendQuery(currentQuery => {
+      if (currentQuery === term) {
+        setFriendSearchResults(data || []);
+      }
+      return currentQuery;
+    });
+  }
+};
   // --- FOLLOW (MUTUAL) ---
   const handleFollow = async (targetId) => {
     if (targetId === session.user.id) {
@@ -697,7 +709,7 @@ export default function Dashboard({ session, onLogout }) {
                     onClick={() => { setActiveListId(user.id); setIsSidebarOpen(false); }}
                     className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all duration-200 group ${
                       activeListId === user.id 
-                      ? 'bg-[var(--accent-primary)] text-[var(--text-primary)] shadow-lg shadow-[var(--accent-glow)]' 
+                      ? 'bg-[var(--accent-primary)] text-[var(--text-primary)]' 
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                     }`}
                   >
@@ -716,7 +728,7 @@ export default function Dashboard({ session, onLogout }) {
                       onClick={() => { setActiveListId(u.id); setIsSidebarOpen(false); }}
                       className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all duration-200 group ${
                         activeListId === u.id 
-                        ? 'bg-[var(--accent-primary)] text-[var(--text-primary)] shadow-lg shadow-[var(--accent-glow)]' 
+                        ? 'bg-[var(--accent-primary)] text-[var(--text-primary)]' 
                         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
                       }`}
                     >
@@ -776,7 +788,7 @@ export default function Dashboard({ session, onLogout }) {
                                 onClick={() => { setActiveListId(member.id); setIsSidebarOpen(false); }}
                                 className={`w-full flex items-center gap-3 px-3 py-2 pl-9 text-sm font-medium transition-all duration-200 group ${
                                   activeListId === member.id 
-                                  ? 'bg-[var(--border-cool)] text-[var(--accent-primary)]' 
+                                  ? 'bg-[var(--border-cool)]/20 text-[var(--accent-primary)]' 
                                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
                                 }`}
                               >
