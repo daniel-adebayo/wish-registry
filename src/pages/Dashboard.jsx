@@ -815,7 +815,7 @@ const handleSearchFriend = async (e) => {
 
           {/* Footer Logout */}
           <div className="p-4 border-t border-[var(--border-light)]">
-            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-[var(--text-secondary)] bg-[var(--bg-hover)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)] border border-[var(--border-light)] hover:border-[var(--danger)]/20 rounded-xl transition-all">
+            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-[var(--danger)] bg-[var(--bg-hover)] hover:bg-[var(--danger)] hover:text-[var(--text-secondary)] border border-[var(--border-light)] hover:border-[var(--danger)]/20 rounded-xl transition-all">
               <LogOut className="w-4 h-4" /> <span>Logout</span>
             </button>
           </div>
@@ -947,7 +947,6 @@ const handleSearchFriend = async (e) => {
           <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
             <div className="max-w-7xl mx-auto">
               <div className="mb-6 md:mb-8 relative">
-                <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-[var(--text-muted)]" />
                 <input 
                   type="text" 
                   placeholder="Search gifts..." 
@@ -955,6 +954,7 @@ const handleSearchFriend = async (e) => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-4 h-4 md:w-5 md:h-5 text-[var(--text-muted)] pointer-events-none" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
@@ -990,7 +990,7 @@ const handleSearchFriend = async (e) => {
                     className="group relative bg-[var(--bg-card)] border border-[var(--border-light)] hover:border-[var(--border-color)] rounded-2xl overflow-hidden hover:shadow-xl hover:shadow-[var(--accent-primary)]/10 transition-all duration-300 flex flex-col cursor-pointer"
                   >
                     {/* IMAGE SECTION */}
-                    <div className="aspect-[4/3] w-full bg-[var(--bg-card)]/50 relative overflow-hidden">
+                    <div className="aspect-[4/4] w-full bg-[var(--bg-card)]/50 relative overflow-hidden">
                       {gift.image_url ? (
                         <img src={gift.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt={gift.name} />
                       ) : (
@@ -1081,7 +1081,7 @@ const handleSearchFriend = async (e) => {
 
       {/* --- GIFT DETAIL MODAL --- */}
       {isDetailModalOpen && selectedGift && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--bg-main)]/90 backdrop-blur-sm" onClick={() => setIsDetailModalOpen(false)} >
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[var(--bg-main)]/90 backdrop-blur-sm" onClick={() => setIsDetailModalOpen(false)} >
           <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl w-full max-w-5xl h-[85vh] shadow-2xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 relative" onClick={(e) => e.stopPropagation()} >
             <button onClick={() => setIsDetailModalOpen(false)} className="absolute top-1.5 right-1.5 z-50 p-1 bg-black/20 hover:bg-[var(--accent-primary)] rounded-full text-white transition-colors">
               <X className="w-6 h-6" />
@@ -1137,7 +1137,7 @@ const handleSearchFriend = async (e) => {
 
       {/* ADD/EDIT GIFT MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg-main)]/90 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--bg-main)]/90 backdrop-blur-sm">
           <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-[var(--border-light)] flex justify-between items-center bg-[var(--bg-hover)]">
               <h3 className="font-bold text-lg text-[var(--text-primary)]">{editingGiftId ? "Edit Gift" : "Add new gift"}</h3>
@@ -1159,6 +1159,17 @@ const handleSearchFriend = async (e) => {
                   <div>
                     <label className="block text-sm font-medium text-[var(--text-muted)] mb-1.5">Amount</label>
                     <input required type="text" className="w-full px-4 py-3 bg-[var(--bg-input)] border border-[var(--border-light)] rounded-xl text-[var(--text-primary)] outline-none" value={newGift.price} onChange={handlePriceChange} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1.5">Image Link (Optional)</label>
+                    <input type="url" placeholder="https://..." className="w-full px-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 outline-none text-white transition-all" value={newGift.image} onChange={e => { setNewGift({...newGift, image: e.target.value}); setSelectedGiftFile(null); }} />
+                  </div>
+                  <div>
+                     <label className="block text-sm font-medium text-gray-400 mb-1.5">Or Upload</label>
+                     <input type="file" accept="image/*" ref={giftFileInputRef} className="hidden" onChange={handleGiftFileChange} />
+                     <button type="button" onClick={() => giftFileInputRef.current.click()} className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-xl text-sm text-gray-300 hover:bg-slate-700 transition-all flex items-center justify-center gap-2">
+                        <Upload className="w-4 h-4" /> {selectedGiftFile ? "File Selected" : "Upload Photo"}
+                     </button>
                   </div>
                 </div>
                 <div>
